@@ -1,0 +1,582 @@
+/*
+ * DRIFT FESTA スタイル。
+ * 色・フォント・角丸などはテーマ (src/config/themes.ts) の CSS 変数で切り替える。
+ * 外部フォント禁止 (オフライン要件) のため OS 標準フォントのみ使用。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--c-bg, #111);
+  color: var(--c-text, #fff);
+  font-family: var(--font-body, sans-serif);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+#game-layer,
+#hud-layer,
+#ui-layer {
+  position: absolute;
+  inset: 0;
+}
+
+#game-layer {
+  z-index: 0;
+}
+
+.game-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+#hud-layer {
+  z-index: 1;
+  pointer-events: none;
+}
+
+#ui-layer {
+  z-index: 2;
+  pointer-events: none;
+}
+
+#ui-layer > * {
+  pointer-events: auto;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* ------------------------------------------------------------------ 画面共通 */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 32px;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.screen.visible {
+  opacity: 1;
+  transform: none;
+}
+
+.menu-screen {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.45) 55%, rgba(0, 0, 0, 0.15) 100%);
+  align-items: flex-start;
+  padding-left: 6vw;
+}
+
+.menu-screen.overlay {
+  background: rgba(0, 0, 0, 0.6);
+  align-items: center;
+  padding-left: 32px;
+}
+
+.menu-header {
+  max-width: 900px;
+}
+
+.menu-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4.2vw, 56px);
+  letter-spacing: var(--letter);
+  transform: var(--title-transform);
+  color: var(--c-accent);
+  text-shadow: var(--hud-shadow);
+}
+
+.menu-subtitle {
+  margin: 6px 0 0;
+  color: var(--c-text-dim);
+  font-size: 18px;
+}
+
+.menu-body {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  max-width: 100%;
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: min(440px, 80vw);
+  max-height: 68vh;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.menu-list.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(140px, 1fr));
+  min-width: 0;
+}
+
+.menu-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 20px;
+  text-align: left;
+  cursor: pointer;
+  background: var(--c-btn);
+  color: var(--c-btn-text);
+  border: var(--border-w) solid color-mix(in srgb, var(--c-panel-border) 35%, transparent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.menu-item.focused {
+  background: var(--c-btn-hover);
+  border-color: var(--c-panel-border);
+  transform: translateX(8px) scale(1.02);
+  box-shadow: var(--glow), var(--shadow);
+}
+
+.menu-list.grid .menu-item.focused {
+  transform: scale(1.05);
+}
+
+.menu-item.disabled {
+  opacity: 0.4;
+}
+
+.menu-item.big {
+  padding: 22px 26px;
+}
+
+.menu-item.big .menu-label {
+  font-size: 30px;
+}
+
+.menu-label {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: var(--letter);
+}
+
+.menu-sub {
+  font-size: 14px;
+  color: var(--c-text-dim);
+}
+
+.menu-item.focused .menu-sub {
+  color: var(--c-text);
+}
+
+.menu-footer {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  color: var(--c-text-dim);
+  font-size: 15px;
+}
+
+.menu-back {
+  cursor: pointer;
+  padding: 8px 16px;
+  background: transparent;
+  border: var(--border-w) solid color-mix(in srgb, var(--c-panel-border) 50%, transparent);
+  border-radius: var(--radius);
+  color: var(--c-text);
+}
+
+.menu-back:hover {
+  border-color: var(--c-panel-border);
+}
+
+/* 難易度 */
+.difficulty.weak .menu-label {
+  color: var(--c-good);
+}
+.difficulty.normal .menu-label {
+  color: var(--c-accent);
+}
+.difficulty.strong .menu-label {
+  color: var(--c-bad);
+}
+.difficulty.focused .menu-label {
+  color: var(--c-btn-text);
+}
+
+/* ------------------------------------------------------------------ タイトル */
+
+.title-screen {
+  cursor: pointer;
+  background: radial-gradient(ellipse at 50% 60%, transparent 0%, rgba(0, 0, 0, 0.55) 80%);
+}
+
+.title-logo {
+  text-align: center;
+  transform: var(--title-transform);
+}
+
+.title-main {
+  font-family: var(--font-display);
+  font-size: clamp(56px, 11vw, 150px);
+  font-weight: 900;
+  letter-spacing: var(--letter);
+  line-height: 1;
+  background: var(--c-bg-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.5));
+}
+
+.title-sub {
+  margin-top: 8px;
+  font-size: clamp(18px, 2.2vw, 28px);
+  color: var(--c-text);
+  letter-spacing: 0.3em;
+  text-shadow: var(--hud-shadow);
+}
+
+.title-press {
+  margin-top: 26vh;
+  font-size: 24px;
+  font-weight: bold;
+  padding: 12px 28px;
+  border-radius: var(--radius);
+  background: var(--c-panel);
+  border: var(--border-w) solid var(--c-panel-border);
+  animation: blink 1.4s ease-in-out infinite;
+}
+
+.title-foot {
+  color: var(--c-text-dim);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ------------------------------------------------------------------ 車選択 */
+
+.car-menu .menu-item {
+  min-height: 86px;
+  padding: 12px 14px;
+}
+
+.car-menu .menu-label {
+  font-size: 17px;
+}
+
+.car-swatch {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+}
+
+.car-detail,
+.course-detail {
+  width: 340px;
+  padding: 20px 22px;
+  background: var(--c-panel);
+  border: var(--border-w) solid var(--c-panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.car-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.car-detail-name {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: bold;
+  color: var(--c-accent);
+}
+
+.car-detail-drive {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: bold;
+  background: var(--c-accent-2);
+  color: #111;
+}
+
+.car-detail-tag {
+  margin: 6px 0 14px;
+  color: var(--c-text-dim);
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin: 7px 0;
+  font-size: 14px;
+}
+
+.stat-bar {
+  height: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.stat-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--c-accent-2), var(--c-accent));
+  border-radius: 6px;
+  transition: width 0.25s ease;
+}
+
+/* ------------------------------------------------------------------ コース選択 */
+
+.course-detail-name {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: bold;
+  color: var(--c-accent);
+}
+
+.course-detail-stars {
+  color: var(--c-accent-2);
+  margin: 4px 0 10px;
+}
+
+.course-preview {
+  display: block;
+  margin: 0 auto 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius);
+}
+
+.course-detail-desc {
+  color: var(--c-text);
+  line-height: 1.5;
+}
+
+.course-best {
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--c-text-dim);
+}
+
+/* ------------------------------------------------------------------ 設定 / あそびかた / ロード */
+
+.settings-menu .menu-list {
+  min-width: min(620px, 90vw);
+}
+
+.howto-screen {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.howto-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 420px));
+  gap: 16px;
+}
+
+.howto-card {
+  padding: 16px 20px;
+  background: var(--c-panel);
+  border: var(--border-w) solid var(--c-panel-border);
+  border-radius: var(--radius);
+}
+
+.howto-card h3 {
+  margin: 0 0 10px;
+  color: var(--c-accent);
+  font-family: var(--font-display);
+}
+
+.howto-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 10px;
+  margin: 6px 0;
+  align-items: center;
+}
+
+kbd {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  text-align: center;
+}
+
+.loading-screen {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.loading-spinner {
+  width: 56px;
+  height: 56px;
+  border: 6px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loading-text {
+  font-family: var(--font-display);
+  font-size: 26px;
+  letter-spacing: 0.2em;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------------ 結果 */
+
+.result-screen {
+  background: rgba(0, 0, 0, 0.66);
+  gap: 14px;
+}
+
+.result-title {
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 84px);
+  color: var(--c-text);
+  transform: var(--title-transform);
+  text-shadow: var(--hud-shadow);
+}
+
+.result-title.win {
+  color: var(--c-accent);
+}
+
+.result-course {
+  text-align: center;
+  color: var(--c-text-dim);
+}
+
+.result-table {
+  border-collapse: collapse;
+  min-width: min(820px, 92vw);
+  background: var(--c-panel);
+  border: var(--border-w) solid var(--c-panel-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-size: 18px;
+}
+
+.result-table th,
+.result-table td {
+  padding: 8px 16px;
+  text-align: left;
+}
+
+.result-table th {
+  color: var(--c-text-dim);
+  font-weight: normal;
+  font-size: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.result-table td.pos {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.result-table td.time,
+.result-table td.lap {
+  font-family: var(--font-mono);
+}
+
+.result-table tr.human {
+  background: color-mix(in srgb, var(--c-accent) 22%, transparent);
+  font-weight: bold;
+}
+
+.result-table tr.human.p1 {
+  background: color-mix(in srgb, #39f3ff 22%, transparent);
+}
+
+.badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: var(--c-accent-2);
+  color: #111;
+  vertical-align: middle;
+}
+
+.result-battle {
+  color: var(--c-text-dim);
+}
+
+.result-menu {
+  position: static;
+  padding: 0;
+  opacity: 1;
+  transform: none;
+  background: none;
+  align-items: center;
+}
+
+.result-menu .menu-header {
+  display: none;
+}
+
+.result-menu .menu-list.grid {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+.result-menu .menu-item {
+  align-items: center;
+}
+
+.result-idle {
+  min-height: 1.2em;
+  color: var(--c-text-dim);
+}
+

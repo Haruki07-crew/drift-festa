@@ -1,0 +1,105 @@
+/* デバッグ表示・テーマ固有の装飾・小さい画面向け */
+
+/* ------------------------------------------------------------------ デバッグ */
+
+.debug-overlay {
+  position: absolute;
+  left: 8px;
+  top: 190px;
+  margin: 0;
+  padding: 8px 10px;
+  max-width: 640px;
+  font: 12px/1.35 var(--font-mono, monospace);
+  color: #b8ffb8;
+  background: rgba(0, 0, 0, 0.72);
+  border-radius: 4px;
+  white-space: pre;
+  pointer-events: none;
+  text-shadow: none;
+  z-index: 5;
+}
+
+.fatal {
+  padding: 40px;
+  color: #fff;
+  font-family: sans-serif;
+}
+
+/* ------------------------------------------------------------------ テーマ固有の装飾 */
+
+[data-theme='futuristic'] .menu-item::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: 10px;
+  height: 10px;
+  border-left: 2px solid var(--c-accent);
+  border-top: 2px solid var(--c-accent);
+}
+
+[data-theme='futuristic'] .hud-panel {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+
+[data-theme='touge'] .menu-title::after {
+  content: '峠';
+  margin-left: 16px;
+  padding: 0 8px;
+  color: var(--c-accent-2);
+  border: 2px solid var(--c-accent);
+  font-size: 0.6em;
+  vertical-align: middle;
+}
+
+[data-theme='touge'] .menu-item.focused {
+  border-left: 8px solid var(--c-accent);
+}
+
+[data-theme='neon'] .menu-title,
+[data-theme='neon'] .hud-pos-num,
+[data-theme='neon'] .hud-message {
+  animation: neon-flicker 3.2s infinite;
+}
+
+[data-theme='neon'] .menu-item.focused {
+  border-color: var(--c-accent-2);
+}
+
+@keyframes neon-flicker {
+  0%,
+  92%,
+  100% {
+    opacity: 1;
+  }
+  93% {
+    opacity: 0.55;
+  }
+  95% {
+    opacity: 1;
+  }
+  96% {
+    opacity: 0.7;
+  }
+}
+
+[data-theme='arcade'] .menu-item {
+  border-width: 3px;
+}
+
+[data-theme='arcade'] .hud-pos-num {
+  -webkit-text-stroke: 2px #1b1f3a;
+}
+
+/* 小さい画面 (ノートPC) 向け */
+@media (max-height: 760px) {
+  .menu-item {
+    padding: 10px 16px;
+  }
+  .hud-pos-num {
+    font-size: 48px;
+  }
+  .hud-speed {
+    font-size: 46px;
+  }
+}

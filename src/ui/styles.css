@@ -1,0 +1,8 @@
+/*
+ * DRIFT FESTA スタイルのエントリー。
+ * 色・フォント・角丸などはテーマ (src/config/themes.ts) の CSS 変数で切り替える。
+ * 外部フォント禁止 (オフライン要件) のため OS 標準フォントのみ使用。
+ */
+@import './styles/screens.css';
+@import './styles/hud.css';
+@import './styles/themes.css';

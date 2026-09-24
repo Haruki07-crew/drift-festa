@@ -7,8 +7,10 @@
  * 描画なしでも動くため、ヘッドレスのシミュレーション検証 (scripts/sim-race.ts) にも使える。
  */
 import { gameConfig } from '../config/game';
+import { gimmickConfig } from '../config/gimmicks';
 import { physicsConfig } from '../config/physics';
-import type { Track, TrackPoint } from '../courses/Track';
+import { createTrackPoint, type Track, type TrackPoint } from '../courses/Track';
+import { GimmickSystem } from '../gimmicks/GimmickSystem';
 import { NpcDriver, type TrafficCar } from '../npc/NpcDriver';
 import { RacingLine, computeIdealOffsets, computeSpeedProfile } from '../npc/RacingLine';
 import { resolveCarCollisions, type CarContact } from '../physics/CarCollision';
@@ -27,6 +29,10 @@ export interface RaceWorldEvents {
   onRespawn?: (car: RaceCar) => void;
   onLap?: (car: RaceCar, lapTime: number) => void;
   onFinish?: (car: RaceCar, position: number) => void;
+  onBoostPad?: (car: RaceCar) => void;
+  onJump?: (car: RaceCar) => void;
+  onLanding?: (car: RaceCar, speed: number) => void;
+  onObstacleHit?: (car: RaceCar, speed: number) => void;
 }
 
 export class RaceWorld {
@@ -34,6 +40,7 @@ export class RaceWorld {
   readonly cars: RaceCar[];
   readonly events: RaceWorldEvents;
   readonly idealOffsets: Float32Array;
+  readonly gimmicks: GimmickSystem;
   phase: RacePhase = 'countdown';
   /** GO! からの経過時間 [s] */
   time = 0;
@@ -48,7 +55,7 @@ export class RaceWorld {
   private readonly contacts: CarContact[] = [];
   private readonly rankEntries: RankEntry[];
   private readonly bodyToCar = new Map<object, RaceCar>();
-  private readonly tmpPoint: TrackPoint = { x: 0, y: 0, z: 0, tx: 0, tz: 1, halfWidth: 5 };
+  private readonly tmpPoint: TrackPoint = createTrackPoint();
   private readonly bodies;
 
   constructor(track: Track, cars: RaceCar[], events: RaceWorldEvents = {}, idealOffsets?: Float32Array) {
@@ -57,18 +64,31 @@ export class RaceWorld {
     this.events = events;
     this.trackCollision = new TrackCollision(track);
     this.idealOffsets = idealOffsets ?? computeIdealOffsets(track);
+    this.gimmicks = new GimmickSystem(track);
+    this.trackCollision.heightOffset = (_body, s) => this.gimmicks.heightOffsetAt(s);
     this.traffic = cars.map((c) => ({ id: c.id, body: c.body }));
     this.rankEntries = cars.map((c) => ({ id: c.id, progress: c.progress }));
     this.bodies = cars.map((c) => c.body);
     for (const c of cars) this.bodyToCar.set(c.body, c);
+    this.gimmicks.events = {
+      onBoostPad: (b) => this.withCar(b, (c) => this.events.onBoostPad?.(c)),
+      onJump: (b) => this.withCar(b, (c) => this.events.onJump?.(c)),
+      onObstacleHit: (b, speed) => this.withCar(b, (c) => this.events.onObstacleHit?.(c, speed)),
+    };
 
     // NPC ドライバーの準備 (パターンごとの基本ラインと速度計画)
     for (const car of cars) {
       if (car.kind === 'npc' && car.pattern) {
         const p = car.pattern;
         const line = RacingLine.blend(track, this.idealOffsets, p.lineBlend, p.lineOffset);
-        const profile = computeSpeedProfile(line, car.spec, p);
-        car.npc = new NpcDriver(p, car.id, car.body, track, line, profile);
+        const grip = new Float32Array(track.samples.length);
+        // 路面 (氷・水中など) とバンク (強いバンクは速く曲がれる) を速度計画に反映
+        const bankBonus = gimmickConfig.bank.gripBonus;
+        track.samples.forEach((smp, i) => {
+          grip[i] = this.gimmicks.gripAt(smp.s, line.offsets[i]!) * (1 + bankBonus * Math.abs(Math.sin(smp.bank)));
+        });
+        const profile = computeSpeedProfile(line, car.spec, p, grip, p.surfaceAwareness);
+        car.npc = new NpcDriver(p, car.id, car.body, track, line, profile, this.gimmicks);
       }
     }
     this.placeOnGrid();
@@ -84,6 +104,7 @@ export class RaceWorld {
       const s = L - g.firstRowOffset - row * g.rowSpacing - (side > 0 ? g.rowSpacing * 0.35 : 0);
       const p = this.track.worldAt(s, side * g.lateralOffset, this.tmpPoint);
       car.body.place(p.x, p.y, p.z, Math.atan2(p.tx, p.tz));
+      car.body.trackHint = this.track.sampleIndexAt(s);
       this.trackCollision.resolve(car.body);
       car.progress.teleport(car.body.trackS);
       car.npc?.reset();
@@ -104,6 +125,7 @@ export class RaceWorld {
   step(dt: number): void {
     const started = this.raceStarted;
     if (started) this.time += dt;
+    this.gimmicks.update(dt);
 
     // --- 操作 ---
     for (const car of this.cars) {
@@ -132,9 +154,14 @@ export class RaceWorld {
       if (impact > physicsConfig.collision.impactThreshold) {
         this.events.onWallImpact?.(car, impact);
       }
+      if (car.body.landingSpeed > physicsConfig.respawn.landingImpactSpeed) {
+        this.events.onLanding?.(car, car.body.landingSpeed);
+      }
+      this.gimmicks.applyToBody(car.body, dt);
     }
     this.contacts.length = 0;
     resolveCarCollisions(this.bodies, this.contacts);
+    this.gimmicks.resolveObstacles(this.bodies);
     for (const c of this.contacts) {
       if (c.speed > physicsConfig.collision.impactThreshold) {
         const a = this.bodyToCar.get(c.a);
@@ -146,7 +173,7 @@ export class RaceWorld {
     // --- 落下・復帰・タイマー ---
     for (const car of this.cars) {
       const body = car.body;
-      if (body.airborne && body.airTime > 0 && body.airTime <= dt * 1.01) {
+      if (body.airborne && body.airMode === 'fall' && body.airTime > 0 && body.airTime <= dt * 1.01) {
         this.events.onFall?.(car);
       }
       if (body.needsRespawn || (car.npc?.wantsRespawn ?? false)) {
@@ -162,7 +189,8 @@ export class RaceWorld {
     // --- 周回・順位 ---
     for (const car of this.cars) {
       const body = car.body;
-      const onTrack = !body.airborne && Math.abs(body.trackLateral) < this.track.def.defaultWidth + this.track.def.runoffWidth + 4;
+      // ジャンプ中 (道路の上を飛んでいる) は通過判定する。コースアウトの落下中はしない
+      const onTrack = body.airMode !== 'fall' && Math.abs(body.trackLateral) < this.track.def.defaultWidth + this.track.def.runoffWidth + 4;
       const wasFinished = car.progress.finished;
       const lapsBefore = car.progress.lapTimes.length;
       car.progress.update(body.trackS, onTrack && started, this.time);
@@ -179,12 +207,23 @@ export class RaceWorld {
     this.updateRanking();
   }
 
+  /** デバッグ用: 車をコース上の任意の位置へ置く (操作ロックなし) */
+  placeCarAt(car: RaceCar, s: number, lateral = 0): void {
+    const p = this.track.worldAt(s, lateral, this.tmpPoint);
+    car.body.place(p.x, p.y, p.z, Math.atan2(p.tx, p.tz));
+    car.body.trackHint = this.track.sampleIndexAt(s);
+    this.trackCollision.resolve(car.body);
+    car.progress.teleport(car.body.trackS);
+    car.npc?.reset();
+  }
+
   /** 最後に通過したチェックポイント付近へ復帰させる */
   respawn(car: RaceCar): void {
     const track = this.track;
     const body = car.body;
     const cp = car.progress.lastCheckpoint;
-    const s = cp < 0 ? track.length - gameConfig.grid.firstRowOffset : track.checkpoints[cp]!;
+    const cpS = cp < 0 ? track.length - gameConfig.grid.firstRowOffset : track.checkpoints[cp]!;
+    const s = this.gimmicks.safeRespawnS(cpS);
     // 他の車と重ならない横位置を探す
     const hw = track.pointAt(s, this.tmpPoint).halfWidth;
     const candidates = [0, -4, 4, -7, 7].filter((l) => Math.abs(l) < hw - 1.5);
@@ -205,6 +244,8 @@ export class RaceWorld {
     }
     const p = track.worldAt(s, lateral, this.tmpPoint);
     body.place(p.x, p.y, p.z, Math.atan2(p.tx, p.tz));
+    // 立体交差で別の道路へ射影されないよう、探索のヒントを復帰位置に合わせる
+    body.trackHint = track.sampleIndexAt(s);
     this.trackCollision.resolve(body);
     car.progress.teleport(body.trackS);
     car.lockTimer = physicsConfig.respawn.lockSeconds;
@@ -233,6 +274,11 @@ export class RaceWorld {
       const car = this.cars[id];
       if (car) car.position = i + 1;
     });
+  }
+
+  private withCar(body: object, fn: (car: RaceCar) => void): void {
+    const car = this.bodyToCar.get(body);
+    if (car) fn(car);
   }
 
   carById(id: number): RaceCar | undefined {

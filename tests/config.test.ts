@@ -41,7 +41,7 @@ describe('car config', () => {
 
 describe('course config', () => {
   it('has at least 3 courses and builds valid tracks', () => {
-    expect(COURSES.length).toBeGreaterThanOrEqual(3);
+    expect(COURSES.length).toBe(10);
     for (const def of COURSES) {
       const t = Track.build(def);
       expect(t.length).toBeGreaterThan(500);

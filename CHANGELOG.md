@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [2.0.0] - 2026-09-23
+
+### Changed
+- 操作方法を統一: 1人 = A/F/E/W + Space、2人 = P1 A/F/E/W + Space / P2 矢印 + Enter (`drivingBindings`)
+- コース設定を 1コース1ファイル (`src/config/courses/`) に分割
+- AI プロンプト履歴の Git 管理を廃止 (`docs/prompts/` と `.ai-local/` を `.gitignore`)。引き継ぎは DEVELOPMENT_STATUS.md
+
+### Added
+- 新コース 7 つ (計 10): AQUA SHIFT / SKYLINE ZERO / FROSTBITE PASS / MAGMA FACTORY / NEON GRAVITY / JUNGLE TEMPLE RUN / TOYBOX MAYHEM
+- コースギミック共通システム (`src/gimmicks/`, `config/gimmicks.ts`): 路面 (雪・氷・土・泥・水・ガラス・鉄板)、ブーストパッド、
+  ジャンプ台と道路の切れ目、水中変形、横風、コンベア、動く障害物 (ゲート・ピストン・回転・列車)、シーソー、トンネル、バンク
+- 水中走行モードの見た目 (タイヤ格納・ヒレ・プロペラ・水中の霧)、バンクに合わせた車体とカメラの傾き、ジャンプの空中補正
+- NPC 難易度「最強 ULTIMATE」(120 パターン / コース)。ギミック・路面・障害物の到達時刻予測に対応
+- BATTLE DUEL の最強 NPC (命中までの時間を考えた発砲・戦略的なアイテム使用)
+- デバッグ: ギミックの3D表示・NPC の判断状態、`?debug&race=...&at=...` でレースへ直接入る
+- テスト追加 (計 79 件): キー割り当て、Ultimate、120 パターン、10 コースのロードと完走、ギミック、BATTLE Ultimate、オフライン
+
 ## [1.0.0] - 2026-09-23
 
 ### Added

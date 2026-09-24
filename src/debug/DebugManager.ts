@@ -4,13 +4,15 @@
  * F3: 情報オーバーレイ (FPS・速度・速度ベクトル・ステア/ブレーキ入力・グリップ・横滑り・
  *     チェックポイント・NPC ID/難易度/性格/目標速度/状態 など)
  * F6: 3D 表示 (NPC レーシングライン・現在ターゲット・チェックポイント・コライダー・
- *     速度ベクトル・アイテムボックス・弾丸軌道)
+ *     速度ベクトル・アイテムボックス・弾丸軌道・コースギミック
+ *     [ブーストパッド範囲 / 路面タイプ / 変形区間 / 横風 / コンベア / ジャンプ台 / 動く障害物の当たり判定])
  * F4: 情報を表示する車を切替
  *
  * Festival Mode (npm run festival) では無効。
  */
 import * as THREE from 'three';
 import type { BattleManager } from '../battle/BattleManager';
+import { gimmickConfig, type SurfaceKind } from '../config/gimmicks';
 import { physicsConfig } from '../config/physics';
 import { itemsConfig } from '../config/items';
 import { msToKmh } from '../core/math';
@@ -137,8 +139,11 @@ export class DebugManager {
       }
     }
 
-    // 毎フレーム更新する線 (コライダー・速度ベクトル・弾丸軌道)
-    const maxSegments = this.world.cars.length * (COLLIDER_SEGMENTS * 2 + 2) + 80;
+    // コースギミック (静的な範囲)
+    this.buildGimmickGizmos(g);
+
+    // 毎フレーム更新する線 (コライダー・速度ベクトル・弾丸軌道・障害物)
+    const maxSegments = this.world.cars.length * (COLLIDER_SEGMENTS * 2 + 3) + 80 + this.world.gimmicks.obstacles.length * 4;
     this.dynamicPositions = new Float32Array(maxSegments * 6);
     this.dynamicColors = new Float32Array(maxSegments * 6);
     const dgeo = this.bag.add(new THREE.BufferGeometry());
@@ -210,6 +215,34 @@ export class DebugManager {
       // 速度ベクトル (0.5 秒分)
       push(b.x, b.y + 1.5, b.z, b.x + b.vx * 0.5, b.y + 1.5, b.z + b.vz * 0.5, 0.2, 0.6, 1);
     }
+    // 動く障害物の当たり判定 (有効 = 赤、無効 = 灰、予告中 = 黄)
+    for (const o of this.world.gimmicks.obstacles) {
+      const st = o.state;
+      const ax = Math.sin(o.heading);
+      const az = Math.cos(o.heading);
+      const rx = -az;
+      const rz = ax;
+      const corners: [number, number][] = [
+        [-o.halfLength, -o.halfWidth],
+        [o.halfLength, -o.halfWidth],
+        [o.halfLength, o.halfWidth],
+        [-o.halfLength, o.halfWidth],
+      ];
+      const [r, gg, bb] = st.active ? [1, 0.15, 0.15] : st.warn ? [1, 0.9, 0.1] : [0.5, 0.5, 0.5];
+      const y = o.baseY + 0.4;
+      for (let k = 0; k < 4; k++) {
+        const a = corners[k]!;
+        const c = corners[(k + 1) % 4]!;
+        push(o.x + ax * a[0] + rx * a[1], y, o.z + az * a[0] + rz * a[1], o.x + ax * c[0] + rx * c[1], y, o.z + az * c[0] + rz * c[1], r, gg, bb);
+      }
+    }
+    // NPC が狙っているギミックへの線
+    for (const car of this.world.cars) {
+      const t = car.npc?.debug.gimmickTarget;
+      if (!t || !car.npc) continue;
+      const b = car.body;
+      push(b.x, b.y + 2, b.z, car.npc.debug.targetX, car.npc.debug.targetY + 2, car.npc.debug.targetZ, 1, 0.4, 1);
+    }
     if (this.battle) {
       for (const bl of this.battle.bullets.bullets) {
         if (!bl.alive) continue;
@@ -232,7 +265,11 @@ export class DebugManager {
     lines.push(`vel (${b.vx.toFixed(2)}, ${b.vy.toFixed(2)}, ${b.vz.toFixed(2)})  yawRate ${b.yawRate.toFixed(2)}`);
     lines.push(`steer in ${c.controls.steer.toFixed(2)} smooth ${b.steer.toFixed(2)}  throttle ${b.throttleInput.toFixed(2)} brake ${b.brakeInput.toFixed(2)}`);
     lines.push(`grip ${b.currentGrip.toFixed(1)} m/s2  slip ${((b.slipAngle * 180) / Math.PI).toFixed(1)}deg  drift ${b.driftAmount.toFixed(2)}  surface ${b.surface}`);
-    lines.push(`maxSpeedMul ${b.maxSpeedMul.toFixed(2)}  airborne ${b.airborne}  collidable ${b.collidable}`);
+    lines.push(`maxSpeedMul ${b.maxSpeedMul.toFixed(2)}  airborne ${b.airborne}(${b.airMode})  collidable ${b.collidable}`);
+    const surf = gimmickConfig.surfaces[b.surfaceKind];
+    lines.push(
+      `surface ${b.surfaceKind} grip x${surf.grip.toFixed(2)} accel x${surf.accel.toFixed(2)}  transform ${b.transformMode ?? '-'}  padBoost ${b.padBoostTimer.toFixed(1)}  bank ${((b.bank * 180) / Math.PI).toFixed(0)}deg`,
+    );
     lines.push(`track s ${b.trackS.toFixed(1)} lat ${b.trackLateral.toFixed(2)}  CP next ${p.nextCheckpoint} last ${p.lastCheckpoint}`);
     lines.push(`lap ${p.lap} passed ${p.passed} key ${p.progressKey.toFixed(3)} pos ${c.position}  lock ${c.lockTimer.toFixed(1)} ghost ${c.ghostTimer.toFixed(1)}`);
     if (c.npc && c.pattern) {
@@ -242,6 +279,7 @@ export class DebugManager {
       lines.push(`  target speed ${msToKmh(d.targetSpeed).toFixed(1)} km/h  state ${d.state}  mistake ${d.mistake ?? '-'}`);
       lines.push(`  line off ${d.lineOffset.toFixed(2)} avoid ${d.avoidOffset.toFixed(2)} avoiding ${d.avoidingId ?? '-'}`);
       lines.push(`  target (${d.targetX.toFixed(1)}, ${d.targetZ.toFixed(1)})  react ${pt.reactionTime.toFixed(2)} noise ${pt.steeringNoise.toFixed(3)}`);
+      lines.push(`  decision: ${d.decision}  gimmick: ${d.gimmickTarget ?? '-'}  usage ${pt.gimmickUsage.toFixed(2)} anticip ${pt.obstacleAnticipation.toFixed(2)} surfAware ${pt.surfaceAwareness.toFixed(2)}`);
     }
     if (this.battle) {
       const cb = this.battle.combatantOf(c);
@@ -257,10 +295,56 @@ export class DebugManager {
       const car = this.world.cars[id]!;
       const tag = car.pattern ? car.pattern.id : car.displayName;
       lines.push(
-        `${String(car.position).padStart(2)} ${tag.padEnd(18)} ${car.spec.name.padEnd(13)} ${msToKmh(car.body.speed).toFixed(0).padStart(3)}km/h lap ${car.progress.lap} ${car.npc ? car.npc.debug.state : ''}`,
+        `${String(car.position).padStart(2)} ${tag.padEnd(20)} ${car.spec.name.padEnd(13)} ${msToKmh(car.body.speed).toFixed(0).padStart(3)}km/h lap ${car.progress.lap} ${car.npc ? `${car.npc.debug.state} ${car.npc.debug.decision}` : ''}`,
       );
     }
     return lines.join('\n');
+  }
+
+  /** ギミックの静的な範囲を線で描く */
+  private buildGimmickGizmos(g: THREE.Group): void {
+    const gs = this.world.gimmicks;
+    const track = this.world.track;
+    const pts: number[] = [];
+    const cols: number[] = [];
+    const surfaceColor: Record<SurfaceKind, number> = {
+      road: 0x888888,
+      snow: 0xffffff,
+      ice: 0x66ccff,
+      dirt: 0xaa7744,
+      mud: 0x664422,
+      water: 0x2288ff,
+      glass: 0x99ffff,
+      metal: 0xaaaaaa,
+    };
+    const c = new THREE.Color();
+    const seg = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, hex: number): void => {
+      c.setHex(hex);
+      pts.push(x0, y0, z0, x1, y1, z1);
+      cols.push(c.r, c.g, c.b, c.r, c.g, c.b);
+    };
+    /** 範囲の左右の縁を線で描く */
+    const zone = (s0: number, len: number, latMin: number, latMax: number, hex: number, dy: number): void => {
+      for (let d = 0; d < len; d += 4) {
+        for (const l of [latMin, latMax]) {
+          const a = track.worldAt(s0 + d, Math.max(-12, Math.min(12, l)));
+          const b = track.worldAt(s0 + Math.min(len, d + 4), Math.max(-12, Math.min(12, l)));
+          seg(a.x, a.y + dy, a.z, b.x, b.y + dy, b.z, hex);
+        }
+      }
+    };
+    for (const z of gs.surfaces) zone(z.s, z.len, z.latMin, z.latMax, surfaceColor[z.kind], 0.3);
+    for (const z of gs.transforms) zone(z.s, z.len, -9, 9, 0x0044ff, 1.5);
+    for (const z of gs.winds) zone(z.s, z.len, -8, 8, 0xccffff, 2.5);
+    for (const z of gs.conveyors) zone(z.s, z.len, z.latMin, z.latMax, 0x00ffaa, 0.6);
+    for (const pad of gs.pads) zone(pad.s - pad.halfLength, pad.halfLength * 2, pad.lateral - pad.halfWidth, pad.lateral + pad.halfWidth, 0xff2d95, 0.4);
+    for (const j of gs.jumps) zone(j.s, j.len, j.latMin, j.latMax, 0xffd23f, 0.8);
+    const geo = this.bag.add(new THREE.BufferGeometry());
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    const lines = new THREE.LineSegments(geo, this.bag.add(new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false })));
+    lines.renderOrder = 20;
+    g.add(lines);
   }
 
   dispose(): void {

@@ -10,7 +10,7 @@ import { audioConfig } from '../config/audio';
 import { battleConfig } from '../config/battle';
 import { gameConfig } from '../config/game';
 import { graphicsConfig, type GraphicsQuality } from '../config/graphics';
-import type { NpcDifficulty } from '../config/npc';
+import { NPC_DIFFICULTIES, type NpcDifficulty } from '../config/npc';
 import { DEFAULT_THEME, UI_THEMES, type UiThemeId } from '../config/themes';
 
 export const STORAGE_KEY = 'club-racing-festival:v1';
@@ -132,7 +132,7 @@ export function sanitizeSaveData(raw: unknown): SaveData {
     lastMode: str(p.lastMode, ['pure', 'battle'] as const, def.prefs.lastMode),
     pureHumans: Math.round(num(p.pureHumans, def.prefs.pureHumans, 1, 2)),
     pureTotalCars: Math.round(num(p.pureTotalCars, def.prefs.pureTotalCars, 2, 8)),
-    difficulty: str<NpcDifficulty>(p.difficulty, ['weak', 'normal', 'strong'], def.prefs.difficulty),
+    difficulty: str<NpcDifficulty>(p.difficulty, NPC_DIFFICULTIES, def.prefs.difficulty),
     carIds:
       Array.isArray(p.carIds) && p.carIds.every((c) => typeof c === 'string')
         ? (p.carIds as string[]).slice(0, 2)

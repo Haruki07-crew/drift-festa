@@ -25,7 +25,7 @@
 3. `README.md`
 4. 関連する `src/config/*`
 5. 関連する既存実装
-6. 最近の `docs/prompts/*`
+6. `DEVELOPMENT_STATUS.md` (作業の引き継ぎ状況)
 7. 必要に応じて `CHANGELOG.md`
 
 既存設計を確認せず、新しいシステムを重複実装しないでください。
@@ -100,7 +100,8 @@ src/config/cars.ts
 src/config/physics.ts
 src/config/npc.ts
 src/config/battle.ts
-src/config/courses.ts
+src/config/courses/      (1コース1ファイル)
+src/config/gimmicks.ts   (コースギミック共通の調整値)
 src/config/controls.ts
 src/config/items.ts
 ```
@@ -129,7 +130,8 @@ src/config/items.ts
 
 - PURE RACE 2〜8台
 - 1〜2プレイヤー
-- NPC
+- NPC (Weak / Normal / Strong / Ultimate)
+- 10コース (各コース固有のギミック)
 - 3周
 - 順位
 - チェックポイント
@@ -151,17 +153,16 @@ src/config/items.ts
 
 入力は状態管理方式で実装してください。
 
-PURE RACE Player 2の特殊キー配置、
+操作方法 (v2 で統一。`src/config/controls.ts` の `drivingBindings`):
 
 ```text
-A = Forward
-F = Reverse
-E = Right
-W = Left
-Enter = Drift
+PURE RACE 1人      : A=前進 F=後退 E=右 W=左 Space=ドリフト
+PURE RACE 2人 P1   : A=前進 F=後退 E=右 W=左 Space=ドリフト
+PURE RACE 2人 P2   : ↑=前進 ↓=後退 →=右 ←=左 Enter=ドリフト
 ```
 
-を一般的なWASDへ勝手に変更しないでください。
+1人プレイで矢印キーをメイン操作に戻さないでください。
+A/F/E/W を一般的な WASD へ勝手に変更しないでください。
 
 BATTLE DUEL：
 
@@ -191,21 +192,24 @@ NPCは、
 
 単純なWaypoint追従のみへ変更しないでください。
 
-1コースあたり、
+難易度は Weak / Normal / Strong / Ultimate (最強) の4段階。1コースあたり、
 
 ```text
-Weak   : 30
-Normal : 30
-Strong : 30
+Weak     : 30
+Normal   : 30
+Strong   : 30
+Ultimate : 30
 ```
 
-合計90パターン。
-
-3コース合計270パターンを扱います。
+合計120パターン。10コース合計で最大1200パターンを扱います。
 
 NPCの強さを不公平な車両性能ブーストで実現しないでください。
+最強 (Ultimate) も運転精度 (ライン・ブレーキング・反応・ミス率・ギミック/路面の理解) だけで強くします。
 
-Rubber Bandingは使用しません。
+Rubber Bandingは使用しません。ワープ・強制勝利も禁止です。
+
+NPC はコースギミック (ブーストパッド・動く障害物・路面) を理解して走ります。
+新しいギミックを追加したら、NPC が扱えるか `npm run sim` で必ず確認してください。
 
 ---
 
@@ -343,17 +347,13 @@ Effects
 
 ---
 
-# AI Prompt Logging
+# AI Prompt History (廃止)
 
-重要なAI開発依頼を受けた場合、
+AI へ送ったプロンプトを Git リポジトリへ履歴として保存する運用はやめました。
 
-`docs/prompts/`
-
-へ履歴を残してください。
-
-ただしユーザーの元プロンプトが取得できない場合は、勝手に文章を捏造しないでください。
-
-詳細は `AI_WORKFLOW.md` を参照。
+- `docs/prompts/` は必須の管理対象ではありません (Git 管理外)
+- AI への一時的な依頼ファイル・メモは `.ai-local/` に置き、GitHub へ push しないでください
+- 作業の引き継ぎには `DEVELOPMENT_STATUS.md` を使います (下記 Session Continuity)
 
 ---
 
@@ -364,7 +364,8 @@ Effects
 - README.md
 - GAME_SPEC.md
 - CHANGELOG.md
-- docs/*
+- DEVELOPMENT_STATUS.md
+- docs/* (docs/prompts を除く)
 - config comments
 
 コードとドキュメントを食い違わせないでください。
@@ -437,7 +438,7 @@ Effects
 
 作業開始時は必ず、
 
-1. `specification.md`
+1. `GAME_SPEC.md` (正式仕様。`specification.md` は初版の原本)
 2. `CLAUDE.md`
 3. `ai_workflow.md`
 4. `DEVELOPMENT_STATUS.md`
@@ -462,5 +463,5 @@ Effects
 を理解できる状態を常に維持する。
 
 タスク完了を報告する前にも `DEVELOPMENT_STATUS.md` を最新状態にする。
-specification.md、CLAUDE.md、ai_workflow.md、DEVELOPMENT_STATUS.mdをすべて読んで、
+GAME_SPEC.md、CLAUDE.md、ai_workflow.md、DEVELOPMENT_STATUS.mdをすべて読んで、
 前回の続きから作業を再開してください。

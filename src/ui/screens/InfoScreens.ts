@@ -113,16 +113,16 @@ export function showHowToPlay(ui: UIManager, onBack: () => void): void {
     return c;
   };
   grid.append(
-    card('PURE RACE 1P / 2Pの左', [
-      ['↑', '前進'],
-      ['↓', 'ブレーキ / 後退'],
-      ['← →', 'ハンドル'],
-      ['Shift', 'ドリフト'],
-    ]),
-    card('PURE RACE 2Pの右 (P2)', [
+    card('PURE RACE 1人 / 2人の P1 (左画面)', [
       ['A', '前進'],
       ['F', 'ブレーキ / 後退'],
       ['W / E', '左 / 右'],
+      ['Space', 'ドリフト'],
+    ]),
+    card('PURE RACE 2人の P2 (右画面)', [
+      ['↑', '前進'],
+      ['↓', 'ブレーキ / 後退'],
+      ['← →', '左 / 右'],
       ['Enter', 'ドリフト'],
     ]),
     card('BATTLE DUEL', [

@@ -1,7 +1,7 @@
 /**
  * NPC走行パターンの生成と選択 (純粋ロジック。テスト対象)。
  *
- * 各コース × 各難易度で 30 パターン (合計 90 / コース、3コースで 270)。
+ * 各コース × 各難易度で 30 パターン (4難易度で 120 / コース、10コースで 1200)。
  * 難易度のパラメータレンジと性格補正から、コースIDをシードにして決定的に生成する。
  * 同じパターンIDは常に同じ内容になる (再現・調整がしやすい)。
  */
@@ -41,6 +41,10 @@ export interface NpcPattern {
   mistakeSeverity: number;
   overtakeTendency: number;
   lookaheadTime: number;
+  awarenessMul: number;
+  surfaceAwareness: number;
+  gimmickUsage: number;
+  obstacleAnticipation: number;
   driftTendency: number;
   blockTendency: number;
   /** 実行時の乱数シード (ステアリングの揺らぎ等) */
@@ -62,6 +66,10 @@ const NUMERIC_KEYS: readonly NumericKey[] = [
   'mistakeSeverity',
   'overtakeTendency',
   'lookaheadTime',
+  'awarenessMul',
+  'surfaceAwareness',
+  'gimmickUsage',
+  'obstacleAnticipation',
 ];
 
 /** 値の下限・上限 (性格補正で範囲外にならないように) */
@@ -78,7 +86,17 @@ const HARD_LIMITS: Record<NumericKey, Range> = {
   mistakeSeverity: { min: 0, max: 1 },
   overtakeTendency: { min: 0, max: 1 },
   lookaheadTime: { min: 0.3, max: 1.2 },
+  awarenessMul: { min: 0.5, max: 1.5 },
+  surfaceAwareness: { min: 0, max: 1 },
+  gimmickUsage: { min: 0, max: 1 },
+  obstacleAnticipation: { min: 0, max: 1 },
 };
+
+/**
+ * 性格補正で 0 にならないよう、難易度レンジ下限の半分を下限にするパラメータ。
+ * (最強でも完全無欠にせず、ごく小さな人間らしい誤差を残すため)
+ */
+const HUMAN_ERROR_KEYS: ReadonlySet<NumericKey> = new Set<NumericKey>(['mistakeRatePerMinute', 'mistakeSeverity', 'steeringNoise', 'reactionTime']);
 
 export function patternId(course: CourseDef, difficulty: NpcDifficulty, num: number): string {
   return `${course.idPrefix}_${difficulty.toUpperCase()}_${String(num).padStart(3, '0')}`;
@@ -98,9 +116,10 @@ export function generateNpcPatterns(course: CourseDef, difficulty: NpcDifficulty
     for (const key of NUMERIC_KEYS) {
       const range = profile[key];
       const base = rng.range(range.min, range.max);
-      const add = mod.add[key] ?? 0;
+      const add = (mod.add[key] ?? 0) * npcConfig.personalityInfluence[difficulty];
       const lim = HARD_LIMITS[key];
-      values[key] = Math.min(lim.max, Math.max(lim.min, base + add));
+      const floor = HUMAN_ERROR_KEYS.has(key) ? Math.max(lim.min, range.min * 0.5) : lim.min;
+      values[key] = Math.min(lim.max, Math.max(floor, base + add));
     }
     // 車: 性格の好みから 75%、全車種から 25%
     const carPool = rng.next() < 0.75 ? mod.preferredCars : CARS.map((c) => c.id);
@@ -121,7 +140,7 @@ export function generateNpcPatterns(course: CourseDef, difficulty: NpcDifficulty
   return patterns;
 }
 
-/** 1コース分 (90個) の全パターン */
+/** 1コース分 (4難易度 × 30 = 120個) の全パターン */
 export function generateCoursePatterns(course: CourseDef): NpcPattern[] {
   return NPC_DIFFICULTIES.flatMap((d) => generateNpcPatterns(course, d));
 }

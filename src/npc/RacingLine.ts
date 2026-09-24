@@ -128,8 +128,18 @@ export interface SpeedPlanParams {
   straightSpeedFactor: number;
 }
 
-/** 車とパターンに応じた目標速度 [m/s] の列 */
-export function computeSpeedProfile(line: RacingLine, spec: CarSpec, params: SpeedPlanParams): Float32Array {
+/**
+ * 車とパターンに応じた目標速度 [m/s] の列。
+ * @param gripAlong ライン上の各サンプルの路面グリップ倍率 (氷・雪・水中など。省略時はすべて 1)
+ * @param surfaceAwareness 路面の理解度 0..1 (低いと滑る路面でも速度を落とし切れない)
+ */
+export function computeSpeedProfile(
+  line: RacingLine,
+  spec: CarSpec,
+  params: SpeedPlanParams,
+  gripAlong?: Float32Array,
+  surfaceAwareness = 1,
+): Float32Array {
   const track = line.track;
   const n = line.curvature.length;
   const ds = track.spacing;
@@ -138,10 +148,17 @@ export function computeSpeedProfile(line: RacingLine, spec: CarSpec, params: Spe
   const latAccel = physicsConfig.grip.lateralGripAccel * spec.grip * npcConfig.speedPlan.lateralGripUsage;
   const steer = physicsConfig.steering;
 
+  const gripEff = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const g = gripAlong ? gripAlong[i]! : 1;
+    // 路面を理解していないほど、滑る路面でも普段どおりのグリップを想定してしまう
+    gripEff[i] = g >= 1 ? g : 1 - (1 - g) * surfaceAwareness;
+  }
+
   for (let i = 0; i < n; i++) {
     const k = Math.max(1e-4, Math.abs(line.curvature[i]!));
     // グリップ限界
-    let v = Math.sqrt(latAccel / k);
+    let v = Math.sqrt((latAccel * gripEff[i]!) / k);
     // ステア性能の限界: v*k <= maxYaw(v)
     let lo = 0;
     let hi = Math.min(v, vmax);
@@ -162,7 +179,7 @@ export function computeSpeedProfile(line: RacingLine, spec: CarSpec, params: Spe
   for (let pass = 0; pass < 2; pass++) {
     for (let i = n - 1; i >= 0; i--) {
       const next = out[(i + 1) % n]!;
-      const limit = Math.sqrt(next * next + 2 * decel * ds);
+      const limit = Math.sqrt(next * next + 2 * decel * Math.min(1, gripEff[i]!) * ds);
       if (out[i]! > limit) out[i] = limit;
     }
   }

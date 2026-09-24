@@ -47,3 +47,20 @@ describe('bullet hit test', () => {
     expect(segmentSphere(3, 1, -5, 3, 1, 5, 0, 1, 0, 1.7)).toBe(false);
   });
 });
+
+import { battleConfig } from '../src/config/battle';
+import { NPC_DIFFICULTIES } from '../src/config/npc';
+
+describe('battle AI difficulty config', () => {
+  it('has all four difficulties and ultimate is the most precise (no forced hits)', () => {
+    for (const d of NPC_DIFFICULTIES) expect(battleConfig.ai[d]).toBeDefined();
+    const u = battleConfig.ai.ultimate;
+    const s = battleConfig.ai.strong;
+    expect(u.aimErrorRad).toBeLessThan(s.aimErrorRad);
+    expect(u.aimErrorRad).toBeGreaterThan(0);
+    expect(u.reactionTime).toBeLessThan(s.reactionTime);
+    expect(u.predictionAccuracy).toBeGreaterThanOrEqual(s.predictionAccuracy);
+    expect(u.conserveAmmoBelow).toBeGreaterThanOrEqual(s.conserveAmmoBelow);
+    expect(u.seekItemsOnlyWhenNeeded).toBe(true);
+  });
+});

@@ -27,6 +27,7 @@ const DIFFICULTY_TEXT: Record<NpcDifficulty, string> = {
   weak: 'やさしい — はじめての人向け',
   normal: 'ふつう — ほどよいライバル',
   strong: 'つよい — 本気のCPU',
+  ultimate: '最強 — ほぼミスしない完璧な走り (チートなし)',
 };
 
 const STAT_KEYS: CarStatKey[] = ['maxSpeedKmh', 'accel', 'brake', 'grip', 'drift', 'mass', 'durability'];
@@ -119,8 +120,8 @@ export class SetupFlow {
       columns: 2,
       initialIndex: this.storage.prefs.pureHumans - 1,
       options: [
-        { label: '1人', sub: '← → ↑ ↓ ・ Shift でドリフト', className: 'big', onSelect: () => this.pickPlayers(1) },
-        { label: '2人', sub: 'P2: A=前 F=後 E=右 W=左 ・ Enter でドリフト', className: 'big', onSelect: () => this.pickPlayers(2) },
+        { label: '1人', sub: 'A=前 F=後 E=右 W=左 ・ Space でドリフト', className: 'big', onSelect: () => this.pickPlayers(1) },
+        { label: '2人', sub: 'P1: A/F/E/W + Space ・ P2: 矢印キー + Enter', className: 'big', onSelect: () => this.pickPlayers(2) },
       ],
       onBack: () => this.showMode(),
     });
@@ -171,7 +172,7 @@ export class SetupFlow {
       subtitle: this.mode === 'battle' ? 'BATTLE DUEL の相手の強さ' : undefined,
       initialIndex: NPC_DIFFICULTIES.indexOf(pref),
       options: NPC_DIFFICULTIES.map((d) => ({
-        label: npcConfig.difficulties[d].label,
+        label: d === 'ultimate' ? `最強 ${npcConfig.difficulties[d].label}` : npcConfig.difficulties[d].label,
         sub: DIFFICULTY_TEXT[d],
         className: `difficulty ${d}`,
         onSelect: () => {
@@ -262,6 +263,7 @@ export class SetupFlow {
       side.append(el('div', 'course-detail-stars', `難しさ ${'★'.repeat(c.difficultyStars)}${'☆'.repeat(5 - c.difficultyStars)}`));
       side.append(this.trackPreview(c.id));
       side.append(el('div', 'course-detail-desc', c.description));
+      if (c.tips) side.append(el('div', 'course-detail-tips', `攻略: ${c.tips}`));
       const best = this.storage.getBest(c.id);
       const bt = el('div', 'course-best');
       bt.append(
@@ -272,8 +274,9 @@ export class SetupFlow {
     };
     this.ui.showMenu({
       title: 'コースをえらぶ',
-      subtitle: `全コース ${gameConfig.laps} 周`,
+      subtitle: `全${COURSES.length}コース・すべて ${gameConfig.laps} 周`,
       className: 'course-menu',
+      columns: 2,
       initialIndex: Math.max(0, COURSES.findIndex((c) => c.id === pref)),
       side,
       onFocus: renderDetail,

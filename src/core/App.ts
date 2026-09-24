@@ -5,6 +5,9 @@
  * RaceSession (シーン・車・HUD など) のみ。レース終了時に RaceSession.dispose() で解放する。
  */
 import { AudioManager } from '../audio/AudioManager';
+import { findCarSpec } from '../config/cars';
+import { findCourseDef } from '../config/courses';
+import { NPC_DIFFICULTIES, type NpcDifficulty } from '../config/npc';
 import { debugRequestedByUrl, isDebugAllowed } from '../debug/DebugManager';
 import type { RaceSetup } from '../game/RaceSetup';
 import { RaceSession, type RaceResult } from '../game/RaceSession';
@@ -19,6 +22,31 @@ import { applyTheme } from '../ui/ThemeManager';
 import { UIManager } from '../ui/UIManager';
 
 type AppState = 'menu' | 'loading' | 'race' | 'paused' | 'result';
+
+/**
+ * デバッグ用: URL パラメータからメニューを飛ばしてレースを開始する (Festival Mode では無効)。
+ * 例: ?debug&race=aqua&mode=pure&cars=6&diff=ultimate&players=2&car=apex86&at=0.4 (at = 開始位置の周回割合)
+ */
+function quickRaceFromUrl(): RaceSetup | null {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const courseId = q.get('race');
+    if (!courseId || !findCourseDef(courseId)) return null;
+    const mode = q.get('mode') === 'battle' ? 'battle' : 'pure';
+    const players = mode === 'battle' ? 1 : Math.min(2, Math.max(1, Number(q.get('players') ?? 1)));
+    const car = findCarSpec(q.get('car') ?? undefined)?.id ?? 'apex86';
+    const diff = (NPC_DIFFICULTIES as readonly string[]).includes(q.get('diff') ?? '') ? (q.get('diff') as NpcDifficulty) : 'normal';
+    return {
+      mode,
+      courseId,
+      humanCarIds: players === 2 ? [car, 'neonfox'] : [car],
+      totalCars: mode === 'battle' ? 2 : Math.min(8, Math.max(players, Number(q.get('cars') ?? 6))),
+      difficulty: diff,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export class App {
   private readonly storage = new StorageManager();
@@ -63,7 +91,15 @@ export class App {
       onPreviewCar: (id) => this.backdrop.showCar(id),
     });
     document.addEventListener('visibilitychange', this.onVisibility);
-    this.flow.showTitle();
+    const quick = this.debugEnabled ? quickRaceFromUrl() : null;
+    if (quick) {
+      this.startRace(quick);
+      const at = Number(new URLSearchParams(window.location.search).get('at'));
+      if (Number.isFinite(at) && at > 0) {
+        window.setTimeout(() => this.session?.debugTeleport(at), 200);
+      }
+    }
+    else this.flow.showTitle();
   }
 
   start(): void {

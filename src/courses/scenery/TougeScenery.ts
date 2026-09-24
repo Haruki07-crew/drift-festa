@@ -7,7 +7,8 @@ import type { QualityPreset } from '../../config/graphics';
 import { SeededRandom } from '../../core/math';
 import { GeometryBuilder } from '../../render/GeometryBuilder';
 import type { ResourceBag } from '../../render/dispose';
-import { createProjection, type Track } from '../Track';
+import type { Track } from '../Track';
+import { buildTerrain } from './Terrain';
 import { addBox } from './CircuitScenery';
 import { TrackProximityGrid, flatten, makeInstanced, mergeGeometries, paint, type InstanceSpec } from './SceneryUtils';
 
@@ -22,90 +23,22 @@ export function buildTougeScenery(track: Track, preset: QualityPreset, bag: Reso
   const grid = new TrackProximityGrid(track, TERRAIN_MARGIN, 8, 120);
   const b = track.bounds;
 
-  // --- 地形の高さ関数 ---
-  const proj = createProjection();
-  const noise = (x: number, z: number): number =>
-    Math.sin(x * 0.021) * Math.cos(z * 0.017) * 6 + Math.sin(x * 0.053 + z * 0.041) * 2.5;
-  const heightAt = (x: number, z: number): number => {
-    const hint = grid.nearestSample(x, z);
-    const base = env.groundLevel + 8 + noise(x, z) * 2;
-    if (hint === undefined) return base;
-    const p = track.project(x, z, hint, proj);
-    const d = Math.abs(p.lateral) - p.halfWidth;
-    const edge = p.lateral >= 0 ? p.right : p.left;
-    let h: number;
-    if (d < 0.5) {
-      h = p.cy - 1.2;
-    } else if (edge === 'wall') {
-      // 山側: 岩肌がせり上がる
-      h = p.cy + Math.min(28, (d - 0.5) * 1.1) + noise(x, z) * 0.6;
-    } else if (edge === 'fall') {
-      // 谷側: 急に落ちる
-      h = p.cy - 3 - (d - 0.5) * 2.2 + noise(x, z) * 0.4;
-    } else {
-      // ガードレール: なだらかに下る
-      h = p.cy - 1.5 - (d - 0.5) * 0.7 + noise(x, z) * 0.5;
-    }
-    // 道から離れるほど基本地形へ
-    const far = Math.min(1, Math.max(0, (d - 40) / 70));
-    h = h * (1 - far) + base * far;
-    return Math.max(env.groundLevel - 4, h);
-  };
-
-  // --- 地形メッシュ ---
-  const minX = b.minX - TERRAIN_MARGIN;
-  const minZ = b.minZ - TERRAIN_MARGIN;
-  const cols = Math.ceil((b.maxX - b.minX + TERRAIN_MARGIN * 2) / TERRAIN_CELL);
-  const rows = Math.ceil((b.maxZ - b.minZ + TERRAIN_MARGIN * 2) / TERRAIN_CELL);
-  const heights = new Float32Array((cols + 1) * (rows + 1));
-  for (let j = 0; j <= rows; j++) {
-    for (let i = 0; i <= cols; i++) {
-      heights[j * (cols + 1) + i] = heightAt(minX + i * TERRAIN_CELL, minZ + j * TERRAIN_CELL);
-    }
-  }
-  const terrain = new GeometryBuilder();
-  const grass = new THREE.Color(env.groundColor);
-  const grassDark = grass.clone().multiplyScalar(0.8);
-  const rock = new THREE.Color(0x7a6e62);
-  const tmp = new THREE.Color();
-  const colorFor = (y0: number, y1: number, y2: number): THREE.Color => {
-    const steep = Math.max(Math.abs(y1 - y0), Math.abs(y2 - y0)) / TERRAIN_CELL;
-    tmp.copy(steep > 0.9 ? rock : (Math.floor(y0) & 1) === 0 ? grass : grassDark);
-    return tmp;
-  };
-  for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < cols; i++) {
-      const x0 = minX + i * TERRAIN_CELL;
-      const z0 = minZ + j * TERRAIN_CELL;
-      const x1 = x0 + TERRAIN_CELL;
-      const z1 = z0 + TERRAIN_CELL;
-      const h00 = heights[j * (cols + 1) + i]!;
-      const h10 = heights[j * (cols + 1) + i + 1]!;
-      const h01 = heights[(j + 1) * (cols + 1) + i]!;
-      const h11 = heights[(j + 1) * (cols + 1) + i + 1]!;
-      // 上向きの面になるよう z+ 方向を考慮した順序
-      terrain.tri(x0, h00, z0, x0, h01, z1, x1, h11, z1, colorFor(h00, h01, h11));
-      terrain.tri(x0, h00, z0, x1, h11, z1, x1, h10, z0, colorFor(h00, h11, h10));
-    }
-  }
-  const terrainMesh = new THREE.Mesh(bag.add(terrain.build()), bag.add(new THREE.MeshLambertMaterial({ vertexColors: true })));
-  terrainMesh.receiveShadow = true;
-  terrainMesh.name = 'terrain';
-  group.add(terrainMesh);
-
-  const terrainHeight = (x: number, z: number): number => {
-    const fi = (x - minX) / TERRAIN_CELL;
-    const fj = (z - minZ) / TERRAIN_CELL;
-    const i = Math.max(0, Math.min(cols - 1, Math.floor(fi)));
-    const j = Math.max(0, Math.min(rows - 1, Math.floor(fj)));
-    const u = fi - i;
-    const v = fj - j;
-    const h00 = heights[j * (cols + 1) + i]!;
-    const h10 = heights[j * (cols + 1) + i + 1]!;
-    const h01 = heights[(j + 1) * (cols + 1) + i]!;
-    const h11 = heights[(j + 1) * (cols + 1) + i + 1]!;
-    return (h00 * (1 - u) + h10 * u) * (1 - v) + (h01 * (1 - u) + h11 * u) * v;
-  };
+  // --- 地形 (道に沿った山肌と谷) ---
+  const terrain = buildTerrain(track, grid, bag, {
+    margin: TERRAIN_MARGIN,
+    cell: TERRAIN_CELL,
+    colorLow: env.groundColor,
+    colorHigh: new THREE.Color(env.groundColor).multiplyScalar(0.8).getHex(),
+    colorRock: 0x7a6e62,
+    wallRise: 28,
+    baseOffset: 8,
+    noiseScale: 1,
+  });
+  group.add(terrain.mesh);
+  const terrainHeight = terrain.heightAt;
+  const minX = terrain.minX;
+  const minZ = terrain.minZ;
+  const grassDark = new THREE.Color(env.groundColor).multiplyScalar(0.8);
 
   // 外周の低地
   const outerGeo = bag.add(new THREE.PlaneGeometry(5000, 5000));
@@ -126,8 +59,8 @@ export function buildTougeScenery(track: Track, preset: QualityPreset, bag: Reso
   const pineCount = Math.floor(900 * preset.sceneryDensity);
   const tints = [0xffffff, 0xd9e8d0, 0xc0d8b8, 0xe6f0d8];
   for (let tries = 0; pines.length < pineCount && tries < pineCount * 10; tries++) {
-    const x = rng.range(minX + 10, minX + cols * TERRAIN_CELL - 10);
-    const z = rng.range(minZ + 10, minZ + rows * TERRAIN_CELL - 10);
+    const x = rng.range(minX + 10, minX + terrain.sizeX - 10);
+    const z = rng.range(minZ + 10, minZ + terrain.sizeZ - 10);
     if (!grid.isClear(x, z, 5)) continue;
     const s = rng.range(0.9, 1.8);
     pines.push({ x, y: terrainHeight(x, z) - 0.3, z, sx: s, sy: s * rng.range(1, 1.5), sz: s, rotY: rng.range(0, 6.28), color: rng.pick(tints) });

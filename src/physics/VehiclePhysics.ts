@@ -9,6 +9,7 @@
  *     ドリフト中はグリップを下げるので滑り続け、カウンターステアで角度を保てる。
  *  4. 駆動方式 (FF/FR/MR/AWD) でドリフト時のグリップ・回頭・安定性・加速が変わる。
  */
+import { gimmickConfig } from '../config/gimmicks';
 import { physicsConfig } from '../config/physics';
 import { approach, clamp, kmhToMs, lerp } from '../core/math';
 import type { VehicleControls } from '../vehicles/VehicleControls';
@@ -37,6 +38,16 @@ export function stepVehicle(body: VehicleBody, input: VehicleControls, dt: numbe
   const spec = body.spec;
   const traits = body.traits;
   const offroad = body.surface === 'offroad';
+  // 路面 (氷・雪・泥など) と変形 (水中) の影響
+  const surf = gimmickConfig.surfaces[body.surfaceKind];
+  const tr = body.transformMode ? gimmickConfig.transform[body.transformMode] : null;
+  const surfaceGrip = surf.grip * (tr ? tr.gripMul : 1);
+  const surfaceDrag = surf.drag + (tr ? tr.drag : 0);
+  const yawMul = tr ? tr.yawMul : 1;
+  const padBoost = body.padBoostTimer > 0;
+  if (padBoost) body.padBoostTimer = Math.max(0, body.padBoostTimer - dt);
+  // バンク: 傾いた路面は遠心力を受け止めるのでグリップが増える
+  const bankGrip = 1 + gimmickConfig.bank.gripBonus * Math.abs(Math.sin(body.bank));
 
   // --- 車体座標系の速度 ---
   let fx = Math.sin(body.heading);
@@ -80,7 +91,8 @@ export function stepVehicle(body: VehicleBody, input: VehicleControls, dt: numbe
     } else {
       const power = 1 - Math.pow(speedRatio, cfg.engine.powerCurveExponent);
       const driftAccel = lerp(1, traits.driftAccelMul, drift);
-      accel += spec.accel * body.accelMul * power * throttle * driftAccel;
+      const padAccel = padBoost ? gimmickConfig.boostPad.accelMul : 1;
+      accel += spec.accel * body.accelMul * surf.accel * padAccel * power * throttle * driftAccel;
     }
   }
   if (throttle <= 0 && brake <= 0) {
@@ -89,6 +101,9 @@ export function stepVehicle(body: VehicleBody, input: VehicleControls, dt: numbe
   accel -= Math.sign(fwd) * cfg.engine.rollingResistance;
   if (offroad) {
     accel -= Math.sign(fwd) * cfg.offroad.extraDrag * clamp(Math.abs(fwd) / 10, 0, 1);
+  }
+  if (surfaceDrag > 0) {
+    accel -= Math.sign(fwd) * surfaceDrag * clamp(Math.abs(fwd) / 10, 0, 1);
   }
   if (drift > 0) {
     accel -= Math.sign(fwd) * cfg.drift.speedLoss * (1 - spec.drift * 0.6) * drift;
@@ -113,7 +128,7 @@ export function stepVehicle(body: VehicleBody, input: VehicleControls, dt: numbe
   const highSpeedRatio = absFwd / cfg.steering.highSpeedHalfAuthority;
   const highSpeedFactor = 1 / (1 + highSpeedRatio * highSpeedRatio);
   const direction = fwd >= 0 ? 1 : -1;
-  let targetYaw = -body.steer * cfg.steering.maxYawRate * spec.handling * lowSpeedFactor * highSpeedFactor * direction;
+  let targetYaw = -body.steer * cfg.steering.maxYawRate * spec.handling * yawMul * lowSpeedFactor * highSpeedFactor * direction;
 
   const slipAngle = Math.atan2(lat, Math.max(absFwd, 2));
   if (drift > 0) {
@@ -148,7 +163,7 @@ export function stepVehicle(body: VehicleBody, input: VehicleControls, dt: numbe
     (cfg.drift.baseGripMul - cfg.drift.driftStatGripReduction * spec.drift) * traits.driftGripMul,
   );
   const grip =
-    cfg.grip.lateralGripAccel * spec.grip * (offroad ? cfg.offroad.gripMul : 1) * lerp(1, driftGripMul, drift);
+    cfg.grip.lateralGripAccel * spec.grip * surfaceGrip * bankGrip * (offroad ? cfg.offroad.gripMul : 1) * lerp(1, driftGripMul, drift);
   const newLat = approach(lat, 0, grip * dt);
   const removed = Math.abs(lat) - Math.abs(newLat);
   if (fwd > 0 && fwd < maxSpeed) {

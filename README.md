@@ -6,7 +6,7 @@
 
 - PURE RACE: 1〜2人 (左右分割画面) + CPU で合計 2〜8 台、3周レース
 - BATTLE DUEL: 1人 vs CPU。銃とアイテムで妨害しながら 3周レース
-- 架空の車 10 台 (FF / FR / MR / AWD)、コース 3 つ、CPU の強さ 3 段階
+- 架空の車 10 台 (FF / FR / MR / AWD)、**コース 10 個** (それぞれ固有のギミック)、CPU の強さ 4 段階 (最強 ULTIMATE まで)
 - 音はすべて Web Audio API で実行時に合成 (音声ファイルなし)、BGM なし
 
 ---
@@ -92,23 +92,24 @@ npm test           # 自動テスト (Vitest)
 
 | キー | 動作 |
 |---|---|
-| ↑ | 前進 |
-| ↓ | ブレーキ / 後退 |
-| ← → | ハンドル |
-| Shift | ドリフト |
+| A | 前進 |
+| F | ブレーキ / 後退 |
+| E | 右 |
+| W | 左 |
+| Space | ドリフト |
 
 ### PURE RACE (2人・左右分割)
 
 | | Player 1 (左画面) | Player 2 (右画面) |
 |---|---|---|
-| 前進 | ↑ | **A** |
-| 後退 | ↓ | **F** |
-| 右 | → | **E** |
-| 左 | ← | **W** |
-| ドリフト | Shift | **Enter** |
+| 前進 | **A** | ↑ |
+| 後退 | **F** | ↓ |
+| 右 | **E** | → |
+| 左 | **W** | ← |
+| ドリフト | **Space** | Enter |
 
-> P2 の **A / F / E / W** (前 / 後 / 右 / 左) は、小さい子でも小指〜人差し指で操作しやすいよう
-> 意図的に決めた配置です。一般的な WASD に変更しないでください。
+> **A / F / E / W** (前 / 後 / 右 / 左) は、小さい子でも小指〜人差し指で操作しやすいよう
+> 意図的に決めた配置です。一般的な WASD に変更しないでください。1人プレイでも矢印キーではなく A/F/E/W です。
 
 ### BATTLE DUEL (1人)
 
@@ -130,9 +131,35 @@ npm test           # 自動テスト (Vitest)
 - **Esc**: ポーズ (再開 / リスタート / 設定 / タイトルへ)。2人プレイ中もゲーム全体が止まります
 - メニュー: 矢印キー + Enter、Esc / Backspace で戻る。マウスでも操作可
 
+### コース (10)
+
+| コース | 見どころ |
+|---|---|
+| Circuit Aurora | 初心者向けサーキット。長いストレート |
+| Kage Touge | 峠道。高低差・ヘアピン・柵のない崖 |
+| Neo Harbor | 夜の港。高速区間・桟橋から落下注意 |
+| AQUA SHIFT | 海中トンネルで **水中走行モードへ変形** (ゆっくり曲がる)、浮上ジャンプ、ブーストパッド |
+| SKYLINE ZERO | 空中都市。**大ジャンプ**、透明な道路、柵のない空中道路、横風、バンク |
+| FROSTBITE PASS | **雪と氷で滑る**。氷の洞窟、氷の橋、湖へのジャンプ、氷のショートカット |
+| MAGMA FACTORY | **開閉ゲート**、動くピストン、コンベア、溶岩を飛び越えるジャンプ |
+| NEON GRAVITY | 8の字の **立体交差**、**壁を走るような超バンク**、ネオントンネル、大ジャンプ |
+| JUNGLE TEMPLE RUN | **土・泥・川**、吊り橋、洞窟、倒木、滝の裏の分岐ルート |
+| TOYBOX MAYHEM | おもちゃ部屋。**シーソー・回る積み木・列車・扇風機の風**、鉛筆の橋、本のジャンプ |
+
+ギミックは一定のリズムで動き、ゲートや列車は来る前にランプが点滅します (ランダムな事故はありません)。
+
+### CPU の強さ
+
+| 表示 | 特徴 |
+|---|---|
+| WEAK | やさしい。ブレーキが早くミスも多い |
+| NORMAL | ふつう。ほどよいライバル |
+| STRONG | つよい。理想ラインに近くミスが少ない |
+| **最強 ULTIMATE** | ほぼミスしない正確な走り。ブーストパッドを狙い、氷や障害物のタイミングも読む。**車の性能アップ・ラバーバンド・ワープなどのズルは一切なし** |
+
 ### ルール
 
-- 全コース3周。最初にゴールした車が勝ち
+- 全10コース・すべて3周。最初にゴールした車が勝ち
 - 柵のない場所から落ちると、最後に通過したチェックポイントへ戻り **6 秒間操作不能**
 - BATTLE DUEL: タイヤHP 100 (車全体で1つ)。0 になると最高速度 50%。Recovery で全回復
 - アイテム最大3個。Recovery / Boost (8秒 最高速+20% 弾速+40%) / Gun (銃+弾10発)
@@ -150,6 +177,19 @@ npm test           # 自動テスト (Vitest)
 | F8 | プレイヤー車を自動運転 (動作確認用) |
 | F9 | 時間の早送り x1 / x4 |
 
+F6 の3D表示では、コースギミック (ブーストパッド範囲・路面タイプ・変形区間・横風・コンベア・ジャンプ台・
+動く障害物の当たり判定) と、NPC が狙っているギミックへの線も表示されます。F3 のオーバーレイには
+路面の種類とグリップ倍率、変形状態、NPC の判断状態 (decision) とギミック利用傾向が出ます。
+
+**レースへ直接入る (開発用):** URL にパラメータを付けるとメニューを飛ばしてレースを始められます。
+
+```text
+http://localhost:5173/?debug&race=aqua&mode=pure&cars=6&diff=ultimate&players=2&car=apex86&at=0.4
+```
+
+`race` = コースID (aurora / touge / harbor / aqua / skyline / frost / magma / neon / jungle / toybox)、
+`diff` = weak / normal / strong / ultimate、`at` = 開始位置 (周回の割合 0〜1。ギミックの確認に便利)。
+
 ブラウザのコンソールで `__app.stats` を実行すると、レース回数・GPU のジオメトリ/テクスチャ数・ヒープ使用量を確認できます (メモリリーク確認用)。
 
 ## 設定ファイル (バランス調整)
@@ -160,10 +200,11 @@ npm test           # 自動テスト (Vitest)
 |---|---|
 | `cars.ts` | 10 車種の最高速度・加速・ブレーキ・グリップ・ドリフト・重量・耐久力・駆動方式・見た目 |
 | `physics.ts` | 車両物理 (ステアリング、グリップ、ドリフト、駆動方式ごとの癖、衝突、コースアウト復帰 6 秒 など) |
-| `npc.ts` | NPC 難易度ごとの能力レンジ、性格、レーシングライン・速度計画、回避・追い越し |
+| `npc.ts` | NPC 難易度 (Weak / Normal / Strong / Ultimate) ごとの能力レンジ、性格、レーシングライン・速度計画、回避・追い越し |
 | `battle.ts` | タイヤHP、銃 (連射間隔・弾速・射程・ダメージ・耐久力による軽減)、NPC 射撃 AI |
 | `items.ts` | アイテム抽選確率、所持数、Boost 効果、弾数、ボックス再出現時間 (8 秒) |
-| `courses.ts` | コース形状 (制御点)、道幅、路肩の種類 (壁/ガードレール/芝/落下)、アイテムボックス位置、色 |
+| `courses/*.ts` | コース形状 (制御点・バンク角)、道幅、路肩の種類 (壁/ガードレール/芝/落下)、ギミック配置、アイテムボックス位置、色。1コース1ファイル |
+| `gimmicks.ts` | 路面ごとのグリップ・加速・抵抗、ブーストパッド、ジャンプ、水中変形、横風、障害物、シーソー、バンク、NPC のギミック利用 |
 | `controls.ts` | キー割り当て |
 | `graphics.ts` | 画質プリセット (低/中/高)、カメラ演出 |
 | `audio.ts` | 効果音の音量・エンジン音 |
@@ -175,7 +216,10 @@ npm test           # 自動テスト (Vitest)
 - **CPU が少し速すぎる** → `npc.ts` の該当難易度の `cornerSpeedFactor` / `brakingFactor` を少し下げる
 - **ドリフトしにくい** → `physics.ts` の `drift.baseGripMul` を下げる、または車の `drift` を上げる
 - **弾が強すぎる** → `battle.ts` の `gun.baseDamage` を下げる / `fireInterval` を上げる
-- **コースを追加** → `courses.ts` の `COURSES` に定義を追加し `npm run check:courses` で重なりを確認
+- **氷が滑りすぎる** → `gimmicks.ts` の `surfaces.ice.grip` を上げる
+- **ブーストパッドが強すぎる** → `gimmicks.ts` の `boostPad.maxSpeedMul` / `kick` を下げる
+- **コースを追加** → `src/config/courses/` にファイルを追加して `index.ts` の `COURSES` に並べる。
+  ギミックは `gimmicks` 配列に並べるだけ。`npm run check:courses` (重なり) と `npm run sim` (NPC 完走) で確認
 
 ## ディレクトリ構造
 
@@ -193,11 +237,12 @@ npm test           # 自動テスト (Vitest)
 │   ├── main.ts             エントリーポイント
 │   ├── core/               App (画面遷移・メインループ)、math
 │   ├── config/             ★ 調整用の設定値
-│   ├── courses/            Track (中心線・射影)、メッシュ生成、背景 (scenery/)
+│   ├── courses/            Track (中心線・射影・バンク・切れ目)、メッシュ生成、背景 (scenery/ にコース別)
+│   ├── gimmicks/           コースギミック (GimmickSystem・Obstacle・GimmickView)
 │   ├── physics/            車両物理、コース衝突、車同士の衝突
 │   ├── vehicles/           車の 3D モデル、操作入力の型
 │   ├── game/               RaceWorld (描画非依存のレース本体)、RaceSession、周回・順位
-│   ├── npc/                レーシングライン、NPC パターン (90/コース)、NPC ドライバー
+│   ├── npc/                レーシングライン、NPC パターン (120/コース)、NPC ドライバー
 │   ├── battle/             タイヤHP、弾丸、偏差射撃、射撃 AI、照準
 │   ├── items/              インベントリ、アイテムボックス
 │   ├── input/              InputManager (キー状態管理)、PlayerController
@@ -208,7 +253,7 @@ npm test           # 自動テスト (Vitest)
 │   ├── debug/              デバッグ表示
 │   └── storage/            LocalStorage
 ├── tests/                  Vitest の自動テスト
-└── docs/                   設計資料・AI プロンプト履歴 (docs/prompts/)
+└── docs/                   設計資料 (docs/prompts/ は Git 管理外)
 ```
 
 詳細は `docs/architecture/README.md` を参照。
@@ -217,11 +262,13 @@ npm test           # 自動テスト (Vitest)
 
 ```bash
 npm test                 # 順位計算・チェックポイント・周回・アイテム抽選・LocalStorage・車両設定・
-                         # NPCパターン・ダメージ計算・車両物理・偏差射撃 のテスト
+                         # NPCパターン (Ultimate・120/コース)・ダメージ計算・車両物理・偏差射撃・
+                         # キー割り当て・コースギミック・10コースのロードと3周完走・BATTLE Ultimate・オフライン
 npm run typecheck        # TypeScript 型チェック (strict)
 npm run check:courses    # コース形状の検証
-npm run sim              # 全コース × 全難易度で NPC が3周完走できるか (描画なし)
+npm run sim              # 全10コース × 全4難易度で NPC が3周完走できるか (描画なし)
 npm run sim -- touge strong 3   # コース・難易度・試行回数を指定
+npm run sim -- frost ultimate -- --verbose   # 復帰 (コースアウト) の場所と理由を表示
 npm run build && npm run check:offline   # ビルド成果物に外部 URL がないか
 ```
 
@@ -261,6 +308,9 @@ npm run build && npm run check:offline   # ビルド成果物に外部 URL が�
 
 ## AI 開発履歴
 
-このプロジェクトは AI (Claude / ChatGPT) を併用して開発しています。重要な依頼は
-`docs/prompts/` に記録しています。ルールは `ai_workflow.md` / `CLAUDE.md` を参照。
-作業の引き継ぎ状況は `DEVELOPMENT_STATUS.md` に記録しています。
+このプロジェクトは AI (Claude / ChatGPT) を併用して開発しています。
+
+- AI へ送ったプロンプトを Git に履歴として保存する運用は**していません**。
+- AI への一時的な依頼ファイルやメモは `.ai-local/` に置きます (Git 管理外。GitHub へは push しない)。
+- 作業の引き継ぎ状況 (完成した内容・次にやること・既知の問題) は **`DEVELOPMENT_STATUS.md`** に記録しています。
+- AI 向けのルールは `claude.md` / `ai_workflow.md` を参照。

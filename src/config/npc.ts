@@ -7,14 +7,15 @@
  *
  * 各コース × 各難易度で PATTERNS_PER_DIFFICULTY 個 (仕様: 30) のパターンを
  * 下記のレンジと性格からシード付き乱数で決定的に生成する。
- * パターンID例: TOUGE_STRONG_017
+ * パターンID例: TOUGE_STRONG_017 / AQUA_ULTIMATE_001
+ * 4難易度 × 30 = 120 パターン / コース (10コースで最大 1200)。
  *
  * 「CPUが少し速すぎる」→ 該当難易度の cornerSpeedFactor / brakingFactor を少し下げる。
  */
 
-export type NpcDifficulty = 'weak' | 'normal' | 'strong';
+export type NpcDifficulty = 'weak' | 'normal' | 'strong' | 'ultimate';
 
-export const NPC_DIFFICULTIES: readonly NpcDifficulty[] = ['weak', 'normal', 'strong'];
+export const NPC_DIFFICULTIES: readonly NpcDifficulty[] = ['weak', 'normal', 'strong', 'ultimate'];
 
 export type NpcPersonality = 'balanced' | 'aggressive' | 'defensive' | 'drift' | 'grip' | 'speed' | 'conservative';
 
@@ -59,6 +60,14 @@ export interface NpcDifficultyProfile {
   overtakeTendency: Range;
   /** 前方注視時間 [s] (ステアリングの目標点までの距離 = 速度 × これ) */
   lookaheadTime: Range;
+  /** 周囲の車を認識する距離の倍率 (接触回避の上手さ) */
+  awarenessMul: Range;
+  /** 路面 (氷・雪・泥・水中) の理解度 0..1。1 = 路面グリップに合わせて正しく減速する */
+  surfaceAwareness: Range;
+  /** ギミック (ブーストパッド・ジャンプ台) を狙う積極性 0..1 */
+  gimmickUsage: Range;
+  /** 動く障害物のタイミング予測の精度 0..1 (0 = 今の位置だけ見る、1 = 到達時刻の位置を予測) */
+  obstacleAnticipation: Range;
 }
 
 export interface NpcPersonalityModifier {
@@ -91,6 +100,10 @@ export const npcConfig = {
       mistakeSeverity: { min: 0.4, max: 0.7 },
       overtakeTendency: { min: 0.15, max: 0.35 },
       lookaheadTime: { min: 0.6, max: 0.75 },
+      awarenessMul: { min: 0.7, max: 0.85 },
+      surfaceAwareness: { min: 0.55, max: 0.7 },
+      gimmickUsage: { min: 0.0, max: 0.2 },
+      obstacleAnticipation: { min: 0.0, max: 0.25 },
     },
     normal: {
       label: 'NORMAL',
@@ -106,6 +119,10 @@ export const npcConfig = {
       mistakeSeverity: { min: 0.25, max: 0.45 },
       overtakeTendency: { min: 0.35, max: 0.6 },
       lookaheadTime: { min: 0.5, max: 0.62 },
+      awarenessMul: { min: 0.9, max: 1.0 },
+      surfaceAwareness: { min: 0.75, max: 0.88 },
+      gimmickUsage: { min: 0.25, max: 0.5 },
+      obstacleAnticipation: { min: 0.4, max: 0.65 },
     },
     strong: {
       label: 'STRONG',
@@ -121,6 +138,29 @@ export const npcConfig = {
       mistakeSeverity: { min: 0.1, max: 0.25 },
       overtakeTendency: { min: 0.6, max: 0.9 },
       lookaheadTime: { min: 0.42, max: 0.52 },
+      awarenessMul: { min: 1.0, max: 1.15 },
+      surfaceAwareness: { min: 0.9, max: 0.97 },
+      gimmickUsage: { min: 0.55, max: 0.8 },
+      obstacleAnticipation: { min: 0.75, max: 0.9 },
+    },
+    ultimate: {
+      label: 'ULTIMATE',
+      lineBlend: { min: 0.97, max: 1.0 },
+      lineOffset: { min: -0.1, max: 0.1 },
+      cornerSpeedFactor: { min: 0.975, max: 0.995 },
+      brakingFactor: { min: 0.9, max: 0.95 },
+      brakeMargin: { min: 0, max: 1 },
+      straightSpeedFactor: { min: 1.0, max: 1.0 },
+      reactionTime: { min: 0.02, max: 0.035 },
+      steeringNoise: { min: 0.001, max: 0.004 },
+      mistakeRatePerMinute: { min: 0.02, max: 0.08 },
+      mistakeSeverity: { min: 0.05, max: 0.12 },
+      overtakeTendency: { min: 0.8, max: 0.95 },
+      lookaheadTime: { min: 0.38, max: 0.46 },
+      awarenessMul: { min: 1.2, max: 1.35 },
+      surfaceAwareness: { min: 0.98, max: 1.0 },
+      gimmickUsage: { min: 0.9, max: 1.0 },
+      obstacleAnticipation: { min: 0.95, max: 1.0 },
     },
   } satisfies Record<NpcDifficulty, NpcDifficultyProfile>,
 
@@ -134,7 +174,7 @@ export const npcConfig = {
     },
     aggressive: {
       label: 'Aggressive',
-      add: { cornerSpeedFactor: 0.015, brakeMargin: -2, overtakeTendency: 0.2, mistakeRatePerMinute: 0.3 },
+      add: { cornerSpeedFactor: 0.015, brakeMargin: -2, overtakeTendency: 0.2, mistakeRatePerMinute: 0.3, gimmickUsage: 0.15 },
       driftTendency: 0.35,
       blockTendency: 0.6,
       preferredCars: ['flashrs', 'cometmr', 'vortexr', 'phantomrx'],
@@ -162,19 +202,30 @@ export const npcConfig = {
     },
     speed: {
       label: 'Speed',
-      add: { straightSpeedFactor: 0.02, cornerSpeedFactor: -0.015, brakeMargin: 2 },
+      add: { straightSpeedFactor: 0.02, cornerSpeedFactor: -0.015, brakeMargin: 2, gimmickUsage: 0.1 },
       driftTendency: 0.2,
       blockTendency: 0.4,
       preferredCars: ['titangt', 'phantomrx', 'vortexr'],
     },
     conservative: {
       label: 'Conservative',
-      add: { cornerSpeedFactor: -0.02, brakeMargin: 3, mistakeRatePerMinute: -0.3, overtakeTendency: -0.1 },
+      add: { cornerSpeedFactor: -0.02, brakeMargin: 3, mistakeRatePerMinute: -0.3, overtakeTendency: -0.1, gimmickUsage: -0.15 },
       driftTendency: 0.05,
       blockTendency: 0.2,
       preferredCars: ['neonfox', 'ironwolf', 'titangt', 'apex86'],
     },
   } satisfies Record<NpcPersonality, NpcPersonalityModifier>,
+
+  /**
+   * 性格補正の効き具合 (難易度別)。最強は性格による崩れ (ミス増など) を小さくし、
+   * ごく小さな人間らしい誤差だけを残す。
+   */
+  personalityInfluence: {
+    weak: 1,
+    normal: 1,
+    strong: 0.8,
+    ultimate: 0.3,
+  } satisfies Record<NpcDifficulty, number>,
 
   /** 理想レーシングラインの計算 */
   racingLine: {
@@ -228,5 +279,9 @@ export const npcConfig = {
     mistakeDuration: { min: 0.6, max: 1.6 },
     /** ドリフトを使うコーナーの最小曲率 [1/m] */
     driftCurvature: 0.018,
+    /** ジャンプ台 (道路の切れ目) の手前で保つ最低速度 [m/s] */
+    jumpApproachSpeed: 26,
+    /** ジャンプ台の何 m 手前から最低速度を保つか [m] */
+    jumpApproachDistance: 45,
   },
 };

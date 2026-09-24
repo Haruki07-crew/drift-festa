@@ -9,6 +9,7 @@ main.ts → core/App ──┬─ ui/ (SetupFlow, 各画面, UIManager, MenuBack
                      └─ game/RaceSession (1レースごとに生成・dispose)
                           ├─ game/RaceWorld  ← 描画非依存のレース本体 (ヘッドレスで動く)
                           │    ├─ physics/ (VehiclePhysics, TrackCollision, CarCollision)
+                          │    ├─ gimmicks/GimmickSystem (路面・パッド・ジャンプ・風・障害物…)
                           │    ├─ npc/NpcDriver (RacingLine, NpcPatterns)
                           │    └─ game/RaceProgress (周回・CP・順位・タイム差)
                           ├─ battle/BattleManager (BATTLE DUEL のみ)
@@ -22,7 +23,8 @@ main.ts → core/App ──┬─ ui/ (SetupFlow, 各画面, UIManager, MenuBack
 1. システムキー (Esc / デバッグ) の処理
 2. フェーズ進行: intro (カメラ回り込み) → countdown (3,2,1,GO) → racing → finishing → done
 3. 固定タイムステップ (1/120 s) で:
-   人間の入力読み取り → `RaceWorld.step` (NPC判断 → 車両物理 → 壁/落下 → 車同士 → 復帰 → 周回/順位) → `BattleManager.step`
+   人間の入力読み取り → `RaceWorld.step` (ギミックの時計 → NPC判断 → 車両物理 → 壁/落下/着地 → ギミック適用 →
+   車同士 → 障害物 → 復帰 → 周回/順位) → `BattleManager.step`
 4. 見た目の更新 (車モデル・パーティクル・カメラ・音・HUD)
 5. プレイヤーごとのビューポートで描画 (2人プレイは scissor で左右分割)
 

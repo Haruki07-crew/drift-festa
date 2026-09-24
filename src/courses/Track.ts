@@ -6,6 +6,7 @@
  * すべてこの中心線を基準にする。Three.js には依存しない (テスト可能)。
  */
 import type { CourseDef, EdgeType } from '../config/courses';
+import { gimmickConfig, type GimmickDef } from '../config/gimmicks';
 import { physicsConfig } from '../config/physics';
 import { wrapAngle } from '../core/math';
 
@@ -28,6 +29,10 @@ export interface TrackSample {
   curvature: number;
   /** 勾配 dy/ds */
   slope: number;
+  /** バンク角 [rad] (正 = 右側が高い)。路面の高さ = y + lateral * tan(bank) */
+  bank: number;
+  /** 道路のない区間 (ジャンプで飛び越える) */
+  gap: boolean;
 }
 
 export interface TrackProjection {
@@ -48,6 +53,12 @@ export interface TrackProjection {
   halfWidth: number;
   left: EdgeType;
   right: EdgeType;
+  /** バンク角 [rad] */
+  bank: number;
+  /** 道路のない区間か */
+  gap: boolean;
+  /** 車の横位置での路面の高さ (バンク込み) */
+  groundY: number;
 }
 
 export function createProjection(): TrackProjection {
@@ -64,6 +75,9 @@ export function createProjection(): TrackProjection {
     halfWidth: 5,
     left: 'wall',
     right: 'wall',
+    bank: 0,
+    gap: false,
+    groundY: 0,
   };
 }
 
@@ -74,6 +88,17 @@ export interface TrackPoint {
   tx: number;
   tz: number;
   halfWidth: number;
+  /** バンク角 [rad] */
+  bank: number;
+}
+
+export function createTrackPoint(): TrackPoint {
+  return { x: 0, y: 0, z: 0, tx: 0, tz: 1, halfWidth: 5, bank: 0 };
+}
+
+/** 周回上の割合 f (0..1) が from..to の範囲に入るか (1 をまたぐ範囲に対応) */
+export function inLapRange(f: number, from: number, to: number): boolean {
+  return from <= to ? f >= from && f < to : f >= from || f < to;
 }
 
 interface DensePoint {
@@ -85,6 +110,7 @@ interface DensePoint {
 }
 
 const DENSE_STEPS_PER_SEGMENT = 48;
+const gimmickDefaults = { jumpLength: gimmickConfig.jump.length };
 const LOCAL_SEARCH_WINDOW = 14;
 
 /** 路肩の種類ごとの横方向の限界 */
@@ -153,6 +179,7 @@ export class Track {
 
     const pts = cps.map((cp) => ({ x: cp.x, y: cp.y ?? 0, z: cp.z }));
     const widths = cps.map((cp) => cp.width ?? def.defaultWidth);
+    const banks = cps.map((cp) => ((cp.bank ?? 0) * Math.PI) / 180);
 
     // 1) 密なポリラインを作る
     const dense: DensePoint[] = [];
@@ -197,6 +224,7 @@ export class Track {
       const w0 = widths[seg]!;
       const w1 = widths[(seg + 1) % n]!;
       const width = w0 + (w1 - w0) * smooth(u);
+      const bank = banks[seg]! + (banks[(seg + 1) % n]! - banks[seg]!) * smooth(u);
       samples.push({
         x,
         y,
@@ -211,6 +239,8 @@ export class Track {
         right: rights[seg]!,
         curvature: 0,
         slope: 0,
+        bank,
+        gap: false,
       });
     }
 
@@ -249,7 +279,51 @@ export class Track {
       samples[i]!.curvature = sum / (smoothRadius * 2 + 1);
     }
 
+    // 6) バンク: 大きさは制御点から、向きは周辺の曲率 (カーブの内側へ傾ける)
+    const bankSign: number[] = [];
+    let lastSign = 1;
+    for (let i = 0; i < count; i++) {
+      let k = 0;
+      for (let d = -15; d <= 15; d++) k += samples[(i + d + count) % count]!.curvature;
+      if (Math.abs(k) > 1e-4) lastSign = k > 0 ? 1 : -1;
+      bankSign.push(lastSign);
+    }
+    for (let i = 0; i < count; i++) {
+      // 左カーブ (曲率 > 0) では外側 = 右側を高くする → 正のバンク
+      samples[i]!.bank = Math.abs(samples[i]!.bank) * bankSign[i]!;
+    }
+
+    // 7) 道路のない区間 (gap)。ジャンプ台の gap 指定は台の直後から自動で作る
+    for (const g of def.gimmicks ?? []) {
+      if (g.type === 'gap') {
+        for (const smp of samples) {
+          if (inLapRange(smp.s / totalLength, g.from, g.to)) smp.gap = true;
+        }
+      } else if (g.type === 'jump' && g.gap !== undefined && g.gap > 0) {
+        const start = g.at * totalLength + (g.length ?? gimmickDefaults.jumpLength) + 1;
+        for (const smp of samples) {
+          const d = (((smp.s - start) % totalLength) + totalLength) % totalLength;
+          if (d < g.gap) smp.gap = true;
+        }
+      }
+    }
+
     return new Track(def, samples, totalLength, spacing);
+  }
+
+  /** このコースのギミック定義 */
+  get gimmicks(): readonly GimmickDef[] {
+    return this.def.gimmicks ?? [];
+  }
+
+  /** 周回上の割合 (0..1) → 距離 s */
+  fracToS(f: number): number {
+    return this.wrapS(f * this.length);
+  }
+
+  /** 距離 s → 周回上の割合 */
+  sToFrac(s: number): number {
+    return this.wrapS(s) / this.length;
   }
 
   /** s を 0..length に正規化 */
@@ -278,7 +352,7 @@ export class Track {
   }
 
   /** 距離 s の中心線上の点 (線形補間) */
-  pointAt(s: number, out: TrackPoint = { x: 0, y: 0, z: 0, tx: 0, tz: 1, halfWidth: 5 }): TrackPoint {
+  pointAt(s: number, out: TrackPoint = createTrackPoint()): TrackPoint {
     const ws = this.wrapS(s);
     const i = this.sampleIndexAt(ws);
     const a = this.sample(i);
@@ -293,16 +367,23 @@ export class Track {
     out.tx = tx / len;
     out.tz = tz / len;
     out.halfWidth = a.halfWidth + (b.halfWidth - a.halfWidth) * f;
+    out.bank = a.bank + (b.bank - a.bank) * f;
     return out;
   }
 
-  /** 距離 s、横オフセット lateral (右が正) のワールド座標 */
-  worldAt(s: number, lateral: number, out: TrackPoint = { x: 0, y: 0, z: 0, tx: 0, tz: 1, halfWidth: 5 }): TrackPoint {
+  /** 距離 s、横オフセット lateral (右が正) のワールド座標 (y はバンク込みの路面高さ) */
+  worldAt(s: number, lateral: number, out: TrackPoint = createTrackPoint()): TrackPoint {
     this.pointAt(s, out);
     // 右方向 = (-tz, tx)
     out.x += -out.tz * lateral;
     out.z += out.tx * lateral;
+    out.y += lateral * Math.tan(out.bank);
     return out;
+  }
+
+  /** s が道路のない区間か */
+  isGap(s: number): boolean {
+    return this.sample(this.sampleIndexAt(s)).gap;
   }
 
   /** 距離 s の曲率 */
@@ -373,6 +454,9 @@ export class Track {
     out.halfWidth = a.halfWidth + (b.halfWidth - a.halfWidth) * t;
     out.left = a.left;
     out.right = a.right;
+    out.bank = a.bank + (b.bank - a.bank) * t;
+    out.gap = a.gap && b.gap;
+    out.groundY = out.cy + out.lateral * Math.tan(out.bank);
     return out;
   }
 

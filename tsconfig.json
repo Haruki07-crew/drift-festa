@@ -17,5 +17,5 @@
     "noImplicitReturns": true,
     "noImplicitOverride": true
   },
-  "include": ["src", "tests"]
+  "include": ["src"]
 }

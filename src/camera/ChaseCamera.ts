@@ -7,6 +7,7 @@
  * - スタート前のイントロ演出 (車の周りを回り込む)
  */
 import * as THREE from 'three';
+import { gimmickConfig } from '../config/gimmicks';
 import { cameraConfig } from '../config/graphics';
 import { clamp, damp, dampAngle } from '../core/math';
 import type { VehicleBody } from '../physics/VehicleBody';
@@ -24,6 +25,8 @@ export class ChaseCamera {
   private time = 0;
   private prevSpeed = 0;
   private accelSmoothed = 0;
+  /** バンクに合わせたカメラの傾き [rad] */
+  private roll = 0;
   shakeEnabled = true;
 
   constructor(far: number) {
@@ -63,14 +66,14 @@ export class ChaseCamera {
     const speedRatio = clamp(speed / Math.max(1, body.maxSpeed), 0, 1.3);
 
     // 向きの追従 (ドリフト中はゆっくり)。落下中は追従しない
-    if (!body.airborne) {
+    if (body.airMode !== 'fall') {
       const response = body.isDrifting ? cfg.driftYawResponse : cfg.yawResponse;
       // 後退中でもカメラは車の後ろ
       this.yaw = dampAngle(this.yaw, body.heading, response, dt);
     }
     this.computeTarget(body, speedRatio);
-    if (body.airborne) {
-      // 落下中はその場から見下ろす
+    if (body.airMode === 'fall') {
+      // コースアウトの落下中はその場から見下ろす
       this.pos.copy(this.camera.position);
     }
 
@@ -91,6 +94,9 @@ export class ChaseCamera {
     cam.position.x += ox;
     cam.position.y += oy;
     cam.lookAt(this.smoothLook);
+    // 強いバンク (壁走行風) ではカメラも傾けて路面を水平に近く見せる
+    this.roll = damp(this.roll, body.airborne ? this.roll : body.bank * gimmickConfig.bank.cameraRoll, 4, dt);
+    if (Math.abs(this.roll) > 1e-4) cam.rotateZ(this.roll);
 
     // FOV (速度感 + 加速時の一時的な変化)
     const accel = dt > 0 ? (speed - this.prevSpeed) / dt : 0;

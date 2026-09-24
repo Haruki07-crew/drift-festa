@@ -190,3 +190,82 @@ export function flatten(g: THREE.BufferGeometry): THREE.BufferGeometry {
   if (ng !== g) g.dispose();
   return ng;
 }
+
+/** 背景ビルダーの戻り値 (update があれば毎フレーム呼ばれる。魚・飛行船・雪などのアニメーション) */
+export interface SceneryResult {
+  group: THREE.Group;
+  update?: (dt: number) => void;
+}
+
+/**
+ * コースから離れた場所にランダムに点を置く。
+ * @param yAt 置く高さ
+ */
+export function scatter(
+  grid: TrackProximityGrid,
+  rng: { range(a: number, b: number): number },
+  count: number,
+  area: { minX: number; maxX: number; minZ: number; maxZ: number },
+  clearance: number,
+  yAt: (x: number, z: number) => number,
+): { x: number; y: number; z: number }[] {
+  const out: { x: number; y: number; z: number }[] = [];
+  for (let tries = 0; out.length < count && tries < count * 12; tries++) {
+    const x = rng.range(area.minX, area.maxX);
+    const z = rng.range(area.minZ, area.maxZ);
+    if (!grid.isClear(x, z, clearance)) continue;
+    out.push({ x, y: yAt(x, z), z });
+  }
+  return out;
+}
+
+/**
+ * コースから clearance 以上離れた格子状のセル中心 (埋立地・机の天板などを敷く場所)。
+ * avoid の点から avoidRadius 以内は除外 (落下区間の下を空けるため)。
+ */
+export function landCells(
+  track: Track,
+  grid: TrackProximityGrid,
+  cell: number,
+  margin: number,
+  clearance: number,
+  avoid: { x: number; z: number }[] = [],
+  avoidRadius = 0,
+): { x: number; z: number }[] {
+  const b = track.bounds;
+  const out: { x: number; z: number }[] = [];
+  for (let x = b.minX - margin; x < b.maxX + margin; x += cell) {
+    for (let z = b.minZ - margin; z < b.maxZ + margin; z += cell) {
+      if (!grid.isClear(x, z, clearance)) continue;
+      if (avoid.some((p) => Math.hypot(p.x - x, p.z - z) < avoidRadius)) continue;
+      out.push({ x, z });
+    }
+  }
+  return out;
+}
+
+/** 窓明かりのテクスチャ (実行時生成) */
+export function makeWindowTexture(rng: { next(): number }, colors: string[], density = 0.42, background = '#000000'): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, 64, 128);
+    for (let y = 2; y < 128; y += 6) {
+      for (let x = 2; x < 64; x += 6) {
+        if (rng.next() < density) {
+          ctx.fillStyle = colors[Math.floor(rng.next() * colors.length)]!;
+          ctx.globalAlpha = 0.5 + rng.next() * 0.5;
+          ctx.fillRect(x, y, 3, 3);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  return tex;
+}

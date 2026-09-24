@@ -7,10 +7,12 @@
  *
  * 車両性能には一切手を加えない (ラバーバンドなし)。
  */
+import { gimmickConfig } from '../config/gimmicks';
 import { npcConfig } from '../config/npc';
 import { physicsConfig } from '../config/physics';
 import { SeededRandom, approach, clamp, lerp, wrapAngle } from '../core/math';
-import type { Track, TrackPoint } from '../courses/Track';
+import { createTrackPoint, type Track, type TrackPoint } from '../courses/Track';
+import type { GimmickSystem, ObstacleAdvice } from '../gimmicks/GimmickSystem';
 import type { VehicleBody } from '../physics/VehicleBody';
 import type { VehicleControls } from '../vehicles/VehicleControls';
 import type { NpcPattern } from './NpcPatterns';
@@ -39,6 +41,10 @@ export interface NpcDebugInfo {
   state: NpcState;
   mistake: MistakeKind | null;
   avoidingId: number | null;
+  /** 現在狙っている / 避けているギミック (例: "boostPad#2", "obstacle#1") */
+  gimmickTarget: string | null;
+  /** 判断状態の説明 (Ultimate の判断確認用) */
+  decision: string;
 }
 
 export class NpcDriver {
@@ -49,7 +55,7 @@ export class NpcDriver {
   readonly carId: number;
   private readonly track: Track;
   private readonly rng: SeededRandom;
-  private readonly tmpPoint: TrackPoint = { x: 0, y: 0, z: 0, tx: 0, tz: 1, halfWidth: 5 };
+  private readonly tmpPoint: TrackPoint = createTrackPoint();
 
   /** 現在の目標横オフセット (ライン + 回避) */
   private currentOffset = 0;
@@ -91,10 +97,30 @@ export class NpcDriver {
     state: 'racing',
     mistake: null,
     avoidingId: null,
+    gimmickTarget: null,
+    decision: '',
   };
 
-  constructor(pattern: NpcPattern, carId: number, body: VehicleBody, track: Track, line: RacingLine, speedProfile: Float32Array) {
+  private readonly gimmicks: GimmickSystem | null;
+  private readonly advice: ObstacleAdvice = { lateral: null, speedCap: Infinity, obstacle: null };
+  /** ブーストパッドを狙うか (パッドごとに gimmickUsage の確率で判断) */
+  private padDecisionIndex = -1;
+  private padDecision = false;
+  /** 障害物を避ける側 (-1 左 / 1 右) と、その判断を保つ残り時間 */
+  private obstacleSide = 0;
+  private obstacleSideTimer = 0;
+
+  constructor(
+    pattern: NpcPattern,
+    carId: number,
+    body: VehicleBody,
+    track: Track,
+    line: RacingLine,
+    speedProfile: Float32Array,
+    gimmicks: GimmickSystem | null = null,
+  ) {
     this.pattern = pattern;
+    this.gimmicks = gimmicks;
     this.carId = carId;
     this.body = body;
     this.track = track;
@@ -160,11 +186,33 @@ export class NpcDriver {
     this.updateAvoidance(dt, traffic, s, speed, lineOff, hw);
 
     const maxOff = Math.max(0, hw - rt.wallMargin);
-    let desired = lineOff + this.avoidOffset + this.extraOffset;
+    let desired = lineOff + this.avoidOffset + this.extraOffset + this.gimmickSeekOffset(s, lineOff);
     if (this.mistake === 'wide') {
       desired += this.mistakeSide * 3.2 * p.mistakeSeverity;
     }
     desired = clamp(desired, -maxOff, maxOff);
+    // 動く障害物: 到達時刻の位置を予測して避ける (予測精度は obstacleAnticipation)
+    let obstacleSpeedCap = Infinity;
+    this.debug.decision = this.avoidingId !== null ? 'overtake/avoid car' : 'follow line';
+    if (this.gimmicks && this.gimmicks.obstacles.length > 0) {
+      if (this.obstacleSideTimer > 0) this.obstacleSideTimer -= dt;
+      else this.obstacleSide = 0;
+      const adv = this.gimmicks.adviseObstacles(s, speed, desired, maxOff, p.obstacleAnticipation, this.advice, this.obstacleSide);
+      if (adv.obstacle) {
+        if (adv.lateral !== null) {
+          this.obstacleSide = adv.lateral < desired ? -1 : 1;
+          this.obstacleSideTimer = 1.5;
+        }
+        this.debug.gimmickTarget = `obstacle#${adv.obstacle.index}`;
+        if (adv.lateral !== null) {
+          desired = clamp(adv.lateral, -maxOff, maxOff);
+          this.debug.decision = 'dodge obstacle';
+        } else {
+          this.debug.decision = 'wait for gate';
+        }
+        obstacleSpeedCap = adv.speedCap;
+      }
+    }
     // ラインへは滑らかに戻る (固定ラインへ無理やり戻って壁に突っ込まない)
     const returning = Math.abs(desired) < Math.abs(this.currentOffset);
     const rate = returning && this.avoidingId === null ? rt.lineReturnRate : rt.offsetChangeRate;
@@ -210,8 +258,13 @@ export class NpcDriver {
     // ラインから大きく外れていたら控えめに
     const offLine = Math.abs(lateralError);
     if (offLine > 3) targetSpeed *= clamp(1 - (offLine - 3) * 0.04, 0.6, 1);
-    targetSpeed = Math.min(targetSpeed, this.followSpeedCap(traffic, s));
+    targetSpeed = Math.min(targetSpeed, this.followSpeedCap(traffic, s), obstacleSpeedCap);
     targetSpeed *= this.speedCapMul;
+    // ジャンプ台の手前では飛び越えられる速度を保つ
+    if (this.gimmicks && this.gimmicks.jumpAhead(s, rt.jumpApproachDistance) < rt.jumpApproachDistance) {
+      targetSpeed = Math.max(targetSpeed, rt.jumpApproachSpeed);
+      this.debug.decision = 'jump approach';
+    }
 
     let throttle = 0;
     let brake = 0;
@@ -281,6 +334,26 @@ export class NpcDriver {
     dbg.avoidingId = this.avoidingId;
   }
 
+  /**
+   * ブーストパッドを狙う横オフセット。パッドごとに gimmickUsage の確率で狙うか決める。
+   */
+  private gimmickSeekOffset(s: number, lineOff: number): number {
+    this.debug.gimmickTarget = null;
+    const g = this.gimmicks;
+    if (!g || g.pads.length === 0) return 0;
+    const cfg = gimmickConfig.npc;
+    const hit = g.padAhead(s, 8, cfg.seekDistance);
+    if (!hit) return 0;
+    if (hit.pad.index !== this.padDecisionIndex) {
+      this.padDecisionIndex = hit.pad.index;
+      this.padDecision = this.rng.next() < this.pattern.gimmickUsage;
+    }
+    if (!this.padDecision) return 0;
+    this.debug.gimmickTarget = `boostPad#${hit.pad.index}`;
+    const max = cfg.seekMaxOffset * this.pattern.gimmickUsage + hit.pad.halfWidth * 0.5;
+    return clamp(hit.pad.lateral - lineOff, -max, max);
+  }
+
   /** 前方の車の回避・追い越し判断と、後続車のブロック */
   private updateAvoidance(
     dt: number,
@@ -302,7 +375,7 @@ export class NpcDriver {
     for (const other of traffic) {
       if (other.id === this.carId || !other.body.collidable || other.body.airborne) continue;
       const ds = track.deltaS(s, other.body.trackS);
-      if (ds > 0 && ds < rt.awarenessDistance) {
+      if (ds > 0 && ds < rt.awarenessDistance * p.awarenessMul) {
         const closing = speed - Math.max(0, other.body.forwardSpeed);
         const lateralGap = Math.abs(other.body.trackLateral - (lineOff + this.avoidOffset));
         // 近い or 追いついている車で、進路上にいる
@@ -310,7 +383,7 @@ export class NpcDriver {
           bestDs = ds;
           blocker = other;
         }
-      } else if (ds < 0 && ds > -rt.rearAwarenessDistance && ds > chaserDs) {
+      } else if (ds < 0 && ds > -rt.rearAwarenessDistance * p.awarenessMul && ds > chaserDs) {
         chaserDs = ds;
         chaser = other;
       }

@@ -13,11 +13,24 @@ import { Track } from '../src/courses/Track';
 const args = process.argv.slice(2);
 const ppmIndex = args.indexOf('--ppm');
 const ppmDir = ppmIndex >= 0 ? args[ppmIndex + 1] : undefined;
+const printCps = args.includes('--cp');
+const only = args.find((a) => !a.startsWith('--') && a !== ppmDir);
 
 let failed = false;
 
 for (const def of COURSES) {
+  if (only && def.id !== only) continue;
   const track = Track.build(def);
+  if (printCps) {
+    // 制御点ごとの周回上の割合 (ギミック配置の目安)
+    const line = def.controlPoints
+      .map((cp, i) => {
+        const pr = track.project(cp.x, cp.z, undefined);
+        return `P${i}=${(pr.s / track.length).toFixed(3)}`;
+      })
+      .join(' ');
+    console.log(`${def.id} cp: ${line}`);
+  }
   const n = track.samples.length;
   let maxK = 0;
   let maxKAt = 0;
@@ -36,6 +49,8 @@ for (const def of COURSES) {
     for (let j = i + step; j < n; j += step) {
       const b = track.samples[j]!;
       if (Math.abs(track.deltaS(a.s, b.s)) < 80) continue;
+      // 立体交差 (十分な高低差がある) は重なりとみなさない
+      if (Math.abs(a.y - b.y) > 6) continue;
       const d = Math.hypot(a.x - b.x, a.z - b.z) - a.halfWidth - b.halfWidth - def.runoffWidth * 2;
       if (d < minClear) {
         minClear = d;

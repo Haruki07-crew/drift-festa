@@ -6,9 +6,11 @@ import { generateCoursePatterns, generateNpcPatterns, selectNpcPatterns } from '
 import { SeededRandom } from '../src/core/math';
 
 describe('NPC patterns', () => {
-  it('generates 30 patterns per difficulty, 90 per course, 270 total with unique ids', () => {
+  it('generates 30 patterns per difficulty, 120 per course with unique ids', () => {
+    expect(NPC_DIFFICULTIES).toEqual(['weak', 'normal', 'strong', 'ultimate']);
     const all = COURSES.flatMap((c) => generateCoursePatterns(c));
-    expect(all.length).toBe(COURSES.length * 90);
+    for (const c of COURSES) expect(generateCoursePatterns(c).length).toBe(120);
+    expect(all.length).toBe(COURSES.length * 120);
     expect(new Set(all.map((p) => p.id)).size).toBe(all.length);
     for (const c of COURSES) {
       for (const d of NPC_DIFFICULTIES) {
@@ -41,13 +43,37 @@ describe('NPC patterns', () => {
     expect(npcConfig.difficulties.strong.cornerSpeedFactor.max).toBeLessThanOrEqual(1);
   });
 
+  it('ultimate is stronger than strong only through driving skill', () => {
+    for (const c of COURSES) {
+      const avg = (d: 'strong' | 'ultimate', k: 'cornerSpeedFactor' | 'reactionTime' | 'mistakeRatePerMinute' | 'steeringNoise' | 'brakingFactor') => {
+        const ps = generateNpcPatterns(c, d);
+        return ps.reduce((sum, p) => sum + p[k], 0) / ps.length;
+      };
+      expect(avg('ultimate', 'cornerSpeedFactor')).toBeGreaterThan(avg('strong', 'cornerSpeedFactor'));
+      expect(avg('ultimate', 'brakingFactor')).toBeGreaterThan(avg('strong', 'brakingFactor'));
+      expect(avg('ultimate', 'reactionTime')).toBeLessThan(avg('strong', 'reactionTime'));
+      expect(avg('ultimate', 'steeringNoise')).toBeLessThan(avg('strong', 'steeringNoise'));
+      expect(avg('ultimate', 'mistakeRatePerMinute')).toBeLessThan(avg('strong', 'mistakeRatePerMinute'));
+      for (const p of generateNpcPatterns(c, 'ultimate')) {
+        // 完全無欠ではない (ごく小さな誤差を残す) / 車の性能を超えない
+        expect(p.mistakeRatePerMinute).toBeGreaterThan(0);
+        expect(p.steeringNoise).toBeGreaterThan(0);
+        expect(p.cornerSpeedFactor).toBeLessThanOrEqual(1);
+        expect(p.straightSpeedFactor).toBeLessThanOrEqual(1);
+        expect(p.id).toMatch(new RegExp(`^${c.idPrefix}_ULTIMATE_\\d{3}$`));
+      }
+    }
+  });
+
   it('selects the requested number without duplicates', () => {
     const rng = new SeededRandom(7);
     for (let n = 1; n <= 7; n++) {
-      const sel = selectNpcPatterns(COURSES[2]!, 'normal', n, () => rng.next());
-      expect(sel.length).toBe(n);
-      expect(new Set(sel.map((p) => p.id)).size).toBe(n);
-      expect(sel.every((p) => p.difficulty === 'normal')).toBe(true);
+      for (const d of NPC_DIFFICULTIES) {
+        const sel = selectNpcPatterns(COURSES[2]!, d, n, () => rng.next());
+        expect(sel.length).toBe(n);
+        expect(new Set(sel.map((p) => p.id)).size).toBe(n);
+        expect(sel.every((p) => p.difficulty === d)).toBe(true);
+      }
     }
   });
 });

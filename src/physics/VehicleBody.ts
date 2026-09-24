@@ -7,10 +7,14 @@
  *   heading が増える = 左旋回
  */
 import type { CarSpec } from '../config/cars';
+import { gimmickConfig, type SurfaceKind, type TransformMode } from '../config/gimmicks';
 import { physicsConfig, type DrivetrainTraits } from '../config/physics';
 import { kmhToMs } from '../core/math';
 
 export type Surface = 'road' | 'offroad';
+
+/** 空中にいる理由: jump = ジャンプ台 (着地できる)、fall = コースアウト (復帰へ) */
+export type AirMode = 'none' | 'jump' | 'fall';
 
 export class VehicleBody {
   readonly spec: CarSpec;
@@ -33,6 +37,19 @@ export class VehicleBody {
 
   airborne = false;
   airTime = 0;
+  airMode: AirMode = 'none';
+  /** 着地した瞬間の縦方向の速度 (演出用。0 = 着地なし) */
+  landingSpeed = 0;
+  /** 現在地の路面バンク角 [rad] */
+  bank = 0;
+
+  // --- コースギミックによる状態 (GimmickSystem が毎ステップ設定) ---
+  /** 路面の種類 */
+  surfaceKind: SurfaceKind = 'road';
+  /** 変形モード (水中など)。null = 通常 */
+  transformMode: TransformMode | null = null;
+  /** ブーストパッドの残り時間 [s] */
+  padBoostTimer = 0;
   surface: Surface = 'road';
   /** コース中心線探索のヒント (前回のサンプル番号) */
   trackHint: number | undefined = undefined;
@@ -79,8 +96,12 @@ export class VehicleBody {
     return Math.hypot(this.vx, this.vz);
   }
 
+  /** 最高速度 (アイテム・タイヤHP・ブーストパッド・路面・変形の倍率込み) */
   get maxSpeed(): number {
-    return kmhToMs(this.spec.maxSpeedKmh) * this.maxSpeedMul;
+    const surf = gimmickConfig.surfaces[this.surfaceKind].maxSpeedMul;
+    const pad = this.padBoostTimer > 0 ? gimmickConfig.boostPad.maxSpeedMul : 1;
+    const tr = this.transformMode ? gimmickConfig.transform[this.transformMode].maxSpeedMul : 1;
+    return kmhToMs(this.spec.maxSpeedKmh) * this.maxSpeedMul * surf * pad * tr;
   }
 
   get forwardX(): number {
@@ -117,6 +138,9 @@ export class VehicleBody {
     this.driftAmount = 0;
     this.airborne = false;
     this.airTime = 0;
+    this.airMode = 'none';
+    this.landingSpeed = 0;
+    this.padBoostTimer = 0;
     this.needsRespawn = false;
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;

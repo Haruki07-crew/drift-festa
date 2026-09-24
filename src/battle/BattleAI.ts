@@ -95,6 +95,8 @@ export class BattleAI {
       speed,
       this.cfg.predictionAccuracy,
     );
+    // 距離を考えた発砲判断: 命中までの時間が長すぎる (避けられやすい) なら撃たない
+    if (sol.time === null || sol.time > this.cfg.maxInterceptTime) return;
     // 照準誤差 (反応ごとに引き直す。強制命中はしない)
     const dir = perturbDirection(
       sol.dir,
@@ -128,7 +130,9 @@ export class BattleAI {
       }
       return;
     }
-    if (!c.boosting && c.inventory.indexOf('boost') >= 0 && this.straightAhead()) {
+    const behind = this.opponent.car.progress.progressKey > this.self.car.progress.progressKey + 0.05;
+    const wantBoost = this.straightAhead() || (this.cfg.boostWhenBehind && behind && this.straightAhead(40));
+    if (!c.boosting && c.inventory.indexOf('boost') >= 0 && wantBoost) {
       if (c.useKind('boost') === 'used') {
         this.itemTimer = 0;
         this.onItemUsed?.('boost');
@@ -139,9 +143,9 @@ export class BattleAI {
   /** アイテム使用時のコールバック (音・表示用) */
   onItemUsed: ((kind: 'recovery' | 'boost') => void) | null = null;
 
-  private straightAhead(): boolean {
+  private straightAhead(length = this.cfg.boostStraightLength): boolean {
     const s = this.self.car.body.trackS;
-    const len = this.cfg.boostStraightLength;
+    const len = length;
     for (let d = 0; d < len; d += 6) {
       if (Math.abs(this.track.curvatureAt(s + d)) > 0.005) return false;
     }
@@ -152,7 +156,9 @@ export class BattleAI {
   private updateItemSeeking(): void {
     const driver = this.self.car.npc;
     if (!driver) return;
-    if (this.self.inventory.isFull) {
+    const inv = this.self.inventory;
+    const needsItem = inv.totalAmmo < 4 || (inv.indexOf('recovery') < 0 && this.self.tire.hp < 80) || inv.slots.length < 2;
+    if (inv.isFull || (this.cfg.seekItemsOnlyWhenNeeded && !needsItem)) {
       driver.extraOffset = 0;
       return;
     }

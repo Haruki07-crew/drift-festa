@@ -29,21 +29,38 @@ export class TrackCollision {
     body.trackHint = p.index;
     body.trackS = p.s;
     body.trackLateral = p.lateral;
+    body.landingSpeed = 0;
 
-    if (body.airborne) {
-      if (body.y < p.cy - respawnCfg.fallDepth || body.airTime > respawnCfg.maxFallTime) {
-        body.needsRespawn = true;
-      }
-      return 0;
-    }
-
+    body.bank = p.bank;
     const side = p.lateral >= 0 ? p.right : p.left;
     const limits = track.edgeLimits(p.halfWidth, side, this.limits);
     const absLat = Math.abs(p.lateral);
+    const groundY = p.groundY + this.heightOffset(body, p.s);
 
-    // --- 落下 ---
-    if (absLat > limits.fall) {
+    if (body.airborne) {
+      // 路面の上 (道路のある区間・壁の内側) で地面より下に来たら着地
+      const overRoad = !p.gap && absLat <= Math.min(limits.wall, limits.fall);
+      // 路面より大きく下 (谷へ落ちた後) からは着地しない
+      if (overRoad && body.vy <= 0 && body.y <= groundY + 0.05 && body.y >= groundY - 1.2) {
+        body.landingSpeed = -body.vy;
+        body.airborne = false;
+        body.airMode = 'none';
+        body.airTime = 0;
+        body.y = groundY;
+        body.vy = 0;
+      } else {
+        const maxAir = body.airMode === 'jump' ? respawnCfg.maxJumpAirTime : respawnCfg.maxFallTime;
+        if (body.y < groundY - respawnCfg.fallDepth || body.airTime > maxAir) {
+          body.needsRespawn = true;
+        }
+        return 0;
+      }
+    }
+
+    // --- 落下 (柵のない路肩の外 / 道路のない区間) ---
+    if (absLat > limits.fall || p.gap) {
       body.airborne = true;
+      body.airMode = 'fall';
       body.airTime = 0;
       body.vy = Math.min(0, body.vy);
       body.surface = 'road';
@@ -51,7 +68,7 @@ export class TrackCollision {
     }
 
     // --- 路面 ---
-    body.y = p.cy;
+    body.y = groundY;
     body.vy = 0;
     const sample = track.sample(p.index);
     body.slope = sample.slope;
@@ -97,6 +114,11 @@ export class TrackCollision {
     body.impactSpeed = Math.max(body.impactSpeed, vn);
     return vn;
   }
+
+  /**
+   * 路面の高さの追加オフセット (シーソーなど動くギミック用)。GimmickSystem が差し替える。
+   */
+  heightOffset: (body: VehicleBody, s: number) => number = () => 0;
 
   /** 位置 (x, z) を射影 (外部から参照用) */
   project(x: number, z: number, hint: number | undefined): TrackProjection {

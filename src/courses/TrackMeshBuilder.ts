@@ -20,7 +20,12 @@ export interface TrackMeshes {
   /** 衝突判定デバッグ等で使う壁の位置情報は Track 側にあるので、ここでは描画のみ */
 }
 
-export function buildTrackMeshes(track: Track, bag: ResourceBag): TrackMeshes {
+export interface TrackMeshOptions {
+  /** 路面を描かないサンプル (ガラス道路・シーソーなど、ギミック側で描く区間) */
+  skipRoad?: (sampleIndex: number) => boolean;
+}
+
+export function buildTrackMeshes(track: Track, bag: ResourceBag, opts: TrackMeshOptions = {}): TrackMeshes {
   const env = track.def.environment;
   const group = new THREE.Group();
   group.name = 'track';
@@ -45,9 +50,12 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag): TrackMeshes {
   const rail = new THREE.Color(0xc9ced6);
   const lineColor = new THREE.Color(env.lineColor);
 
+  const supports = env.roadSupports ?? 'skirt';
+  const pillars: THREE.Matrix4[] = [];
+  // バンクを考慮した路面上の点
   const at = (s: TrackSample, lateral: number, dy: number): [number, number, number] => [
     s.x + s.rx * lateral,
-    s.y + dy,
+    s.y + dy + lateral * Math.tan(s.bank),
     s.z + s.rz * lateral,
   ];
 
@@ -95,9 +103,21 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag): TrackMeshes {
     const hw0 = s0.halfWidth;
     const hw1 = s1.halfWidth;
     const band = Math.floor(s0.s / 8) % 2 === 0;
+    // 道路のない区間 (ジャンプで飛び越える) は何も描かない
+    if (s0.gap || s1.gap) continue;
+    const skip = opts.skipRoad?.(i) ?? false;
 
     // --- 路面 ---
-    strip(road, i, -hw0, hw0, 0, band ? roadA : roadB, -hw1, hw1);
+    if (!skip) strip(road, i, -hw0, hw0, 0, band ? roadA : roadB, -hw1, hw1);
+    // --- 高架の柱 ---
+    if (supports === 'pillars' && i % 12 === 0 && s0.y - env.groundLevel > 3) {
+      const h = s0.y - env.groundLevel;
+      pillars.push(new THREE.Matrix4().compose(
+        new THREE.Vector3(s0.x, env.groundLevel + h / 2 - 0.5, s0.z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, h, 1),
+      ));
+    }
 
     // --- 路肩 (左右) ---
     for (const side of [-1, 1] as const) {
@@ -126,7 +146,7 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag): TrackMeshes {
         else strip(walls, i, l0, t0, wallH, wallTop, l1, t1);
         vertical(walls, i, t0, t1, -0.05, wallH, wallB);
         // 外側の崖 (高低差のあるコース)
-        if (s0.y - skirtBottom > 1.5) {
+        if (supports === 'skirt' && s0.y - skirtBottom > 1.5) {
           vertical(walls, i, t0, t1, 0, 0, skirt, skirtBottom);
         }
       } else if (edge === 'guardrail') {
@@ -137,17 +157,19 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag): TrackMeshes {
           const p = at(s0, side * (outer0 + 0.05), 0);
           guardrailPosts.push(new THREE.Matrix4().makeTranslation(p[0], p[1] + 0.45, p[2]));
         }
-        if (s0.y - skirtBottom > 0.5) {
+        if (supports === 'skirt' && s0.y - skirtBottom > 0.5) {
           vertical(walls, i, l0, l1, 0, 0, skirt, skirtBottom);
         }
       } else if (edge === 'fall') {
         // 柵なし: 路面の縁から下へ崖
         const l0 = side * hw0;
         const l1 = side * hw1;
-        vertical(walls, i, l0, l1, 0, 0, skirt, skirtBottom);
+        if (supports === 'skirt') vertical(walls, i, l0, l1, 0, 0, skirt, skirtBottom);
+        else vertical(walls, i, l0, l1, -1.2, 0, skirt);
       }
     }
 
+    if (skip) continue;
     // --- 縁石 (コーナーの両側) ---
     if (Math.abs(s0.curvature) > CURB_CURVATURE) {
       const red = Math.floor(s0.s / CURB_SEGMENT) % 2 === 0;
@@ -210,6 +232,16 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag): TrackMeshes {
   wallMesh.receiveShadow = true;
   wallMesh.castShadow = true;
   group.add(roadMesh, decoMesh, wallMesh);
+
+  if (pillars.length > 0) {
+    const pillarGeo = bag.add(new THREE.BoxGeometry(1.6, 1, 1.6));
+    const pillarMat = bag.add(new THREE.MeshLambertMaterial({ color: env.night ? 0x2a2c3a : 0xb8bcc6 }));
+    const pm = new THREE.InstancedMesh(pillarGeo, pillarMat, pillars.length);
+    pillars.forEach((m, k) => pm.setMatrixAt(k, m));
+    pm.instanceMatrix.needsUpdate = true;
+    pm.computeBoundingSphere();
+    group.add(pm);
+  }
 
   if (guardrailPosts.length > 0) {
     const postGeo = bag.add(new THREE.BoxGeometry(0.14, 0.9, 0.14));

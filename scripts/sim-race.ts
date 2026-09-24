@@ -15,7 +15,9 @@ import { buildRaceCars } from '../src/game/RaceSetup';
 import { RaceWorld } from '../src/game/RaceWorld';
 import { computeIdealOffsets } from '../src/npc/RacingLine';
 
-const [courseArg, diffArg, trialsArg] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const verbose = argv.includes('--verbose');
+const [courseArg, diffArg, trialsArg] = argv.filter((a) => !a.startsWith('--'));
 const courses = COURSES.filter((c) => !courseArg || c.id === courseArg);
 const diffs = NPC_DIFFICULTIES.filter((d) => !diffArg || d === diffArg);
 const trials = trialsArg ? Number(trialsArg) : 1;
@@ -40,14 +42,30 @@ for (const def of courses) {
       cars.forEach((c, i) => ((c as { id: number }).id = i));
       let falls = 0;
       let wall = 0;
+      const reasons = new Map<string, number>();
       const world = new RaceWorld(track, cars, {
         onFall: () => falls++,
         onWallImpact: () => wall++,
+        onRespawn: (c) => {
+          const key = `${(c.body.trackS / track.length).toFixed(2)}`;
+          reasons.set(key, (reasons.get(key) ?? 0) + 1);
+        },
       }, ideal);
+      // 復帰前の状態を記録するため、step 前後で比較する
+      const preRespawn = new Map<number, string>();
       world.startRace();
       const start = performance.now();
       while (world.time < MAX_TIME && !cars.every((c) => c.progress.finished)) {
+        for (const c of cars) {
+          preRespawn.set(c.id, `${(c.body.trackS / track.length).toFixed(3)} ${c.body.airMode} v=${c.body.speed.toFixed(0)} npc=${c.npc?.debug.state}/${c.npc?.wantsRespawn}`);
+        }
+        const before = cars.map((c) => c.respawnCount);
         world.step(dt);
+        if (verbose) {
+          cars.forEach((c, i) => {
+            if (c.respawnCount > before[i]!) console.log(`   respawn ${c.pattern?.id} from ${preRespawn.get(c.id)}`);
+          });
+        }
       }
       const ms = performance.now() - start;
       const finished = cars.filter((c) => c.progress.finished).length;

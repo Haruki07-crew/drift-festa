@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { itemsConfig } from '../config/items';
-import type { Track } from '../courses/Track';
+import { createTrackPoint, type Track } from '../courses/Track';
 import { ResourceBag } from '../render/dispose';
 
 export interface ItemBox {
@@ -23,7 +23,7 @@ export class ItemBoxField {
   readonly boxes: ItemBox[] = [];
 
   constructor(track: Track) {
-    const p = { x: 0, y: 0, z: 0, tx: 0, tz: 1, halfWidth: 5 };
+    const p = createTrackPoint();
     for (const row of track.def.itemBoxes) {
       const s = row.at * track.length;
       for (const lateral of row.lateral) {

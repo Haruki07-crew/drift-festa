@@ -158,6 +158,10 @@ export const physicsConfig = {
     fallDepth: 9,
     /** 落下開始からの最大時間 [s] */
     maxFallTime: 1.6,
+    /** ジャンプ中の最大滞空時間 [s] (これを超えたら復帰) */
+    maxJumpAirTime: 5,
+    /** この縦速度 [m/s] 以上で着地したら衝撃演出 */
+    landingImpactSpeed: 6,
     /** コースアウト (落下可能区間) と判定する、路肩からの距離 [m] */
     fallEdgeMargin: 0.4,
     /** 逆さま・停止などで動けなくなった時に自動復帰するまでの時間 [s] (人間プレイヤーには適用しない) */

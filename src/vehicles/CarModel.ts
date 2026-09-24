@@ -60,6 +60,10 @@ export class CarModel {
   private roll = 0;
   private pitch = 0;
   private blinkTime = 0;
+  /** 水中変形の度合い 0 (通常) .. 1 (タイヤ格納・ヒレ展開) */
+  private transform = 0;
+  private readonly fins = new THREE.Group();
+  private readonly propeller = new THREE.Group();
   readonly ghost: boolean;
 
   constructor(spec: CarSpec, opts: CarModelOptions, shadowTexture: THREE.Texture) {
@@ -183,6 +187,29 @@ export class CarModel {
       }
     }
 
+    // --- 水中走行モード用のヒレとプロペラ (通常は非表示) ---
+    const finMat = this.track(new THREE.MeshStandardMaterial({ color: v.accentColor, roughness: 0.4, metalness: 0.3, flatShading: true, ...ghostProps }));
+    const sideFinGeo = this.bag.add(new THREE.BoxGeometry(0.9, 0.08, 1.6));
+    for (const side of [-1, 1]) {
+      const f = new THREE.Mesh(sideFinGeo, finMat);
+      f.position.set(side * (W / 2 + 0.4), y0 + 0.25, 0);
+      f.rotation.z = side * 0.25;
+      this.fins.add(f);
+    }
+    const dorsal = new THREE.Mesh(this.bag.add(new THREE.BoxGeometry(0.08, 0.7, 1.2)), finMat);
+    dorsal.position.set(0, y1 + d.cabinHeight + 0.3, -0.4);
+    this.fins.add(dorsal);
+    const bladeGeo = this.bag.add(new THREE.BoxGeometry(0.12, 0.9, 0.08));
+    for (let k = 0; k < 3; k++) {
+      const bl = new THREE.Mesh(bladeGeo, finMat);
+      bl.rotation.z = (k * Math.PI * 2) / 3;
+      this.propeller.add(bl);
+    }
+    this.propeller.position.set(0, y0 + d.bodyHeight * 0.5, -L / 2 - 0.15);
+    this.fins.add(this.propeller);
+    this.fins.visible = false;
+    this.chassis.add(this.fins);
+
     // --- 丸影 (影OFFでも接地感を出す) ---
     const shadowGeo = this.bag.add(new THREE.PlaneGeometry(W * 1.35, L * 1.2));
     shadowGeo.rotateX(-Math.PI / 2);
@@ -243,7 +270,8 @@ export class CarModel {
   update(body: VehicleBody, dt: number, ghostBlink: boolean): void {
     const d = this.dims;
     this.root.position.set(body.x, body.y, body.z);
-    this.root.rotation.y = body.heading;
+    // バンクした路面に合わせて車体ごと傾ける (右側が高い = 左へ傾く)
+    this.root.rotation.set(0, body.heading, -body.bank, 'YXZ');
 
     // ロール (横G) とピッチ (加減速 + 勾配)
     const targetRoll = clamp(body.lateralAccel * 0.0045, -0.09, 0.09);
@@ -253,12 +281,22 @@ export class CarModel {
     this.chassis.rotation.set(this.pitch, 0, this.roll, 'YXZ');
     this.chassis.position.y = Math.abs(this.roll) * 0.4;
 
+    // 水中変形: タイヤを格納してヒレとプロペラを出す
+    this.transform = damp(this.transform, body.transformMode === 'underwater' ? 1 : 0, 5, dt);
+    const tr = this.transform;
+    this.fins.visible = tr > 0.05;
+    this.fins.scale.setScalar(Math.max(0.001, tr));
+    this.propeller.rotation.z += body.forwardSpeed * dt * 0.8;
+
     // タイヤ
     this.wheelAngle += (body.forwardSpeed / d.wheelRadius) * dt;
+    const wheelScale = 1 - tr * 0.75;
     for (const w of this.wheels) {
       w.spin.rotation.x = this.wheelAngle;
       w.pivot.rotation.y = w.front ? -body.steer * 0.45 : 0;
       w.pivot.rotation.x = this.pitch;
+      w.spin.scale.setScalar(Math.max(0.05, wheelScale));
+      w.spin.position.set(-Math.sign(w.pivot.position.x) * tr * 0.25, tr * 0.25, 0);
     }
 
     // ブレーキランプ

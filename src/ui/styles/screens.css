@@ -227,6 +227,10 @@ button {
 .difficulty.strong .menu-label {
   color: var(--c-bad);
 }
+.difficulty.ultimate .menu-label {
+  color: var(--c-accent-2);
+  text-shadow: 0 0 10px var(--c-accent-2);
+}
 .difficulty.focused .menu-label {
   color: var(--c-btn-text);
 }
@@ -389,6 +393,16 @@ button {
 .course-detail-desc {
   color: var(--c-text);
   line-height: 1.5;
+}
+
+.course-detail-tips {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--c-accent);
+  color: var(--c-text);
+  font-size: 14px;
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .course-best {
@@ -580,3 +594,16 @@ kbd {
   color: var(--c-text-dim);
 }
 
+
+.course-menu .menu-list.grid {
+  grid-template-columns: repeat(2, minmax(200px, 250px));
+  max-height: 72vh;
+}
+
+.course-menu .menu-item {
+  padding: 9px 18px;
+}
+
+.course-menu .menu-label {
+  font-size: 19px;
+}

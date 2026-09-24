@@ -10,7 +10,7 @@
 - 同じ設計思想
 - 同じドキュメント
 - 同じConfig
-- 同じ履歴
+- 同じ作業状態 (DEVELOPMENT_STATUS.md)
 
 を参照して開発することを目的とする。
 
@@ -41,6 +41,7 @@ AIへコード変更を依頼する際は、可能であれば以下を共有す
 ```text
 GAME_SPEC.md
 AI_WORKFLOW.md
+DEVELOPMENT_STATUS.md
 関連コード
 現在のGit diff
 現在のbranch
@@ -51,116 +52,16 @@ AIは関連コードを確認してから変更する。
 
 ---
 
-# Prompt History
+# Prompt History (廃止)
 
-重要なAI依頼は、
+Claude / ChatGPT へ送ったプロンプトを Git リポジトリへ履歴として保存する運用はやめた。
 
-```text
-docs/prompts/
-```
+- `docs/prompts/` は必須の管理対象ではない (`.gitignore` 済み。過去のファイルはローカルに残してよい)
+- AI への一時的な依頼ファイル・メモは `.ai-local/` に置く (`.gitignore` 済み。GitHub へ push しない)
+- プロンプト履歴を Git へ commit することを必須にしない
 
-へ保存する。
-
-ファイル名：
-
-```text
-YYYY-MM-DD_NNN_short-description.md
-```
-
-例：
-
-```text
-2026-09-23_001_initial-game-spec.md
-2026-09-24_002_fix-npc-cornering.md
-2026-09-24_003_battle-aim-adjustment.md
-```
-
----
-
-# Prompt Log Template
-
-```markdown
-# Prompt Log
-
-## Date
-
-2026-XX-XX
-
-## AI
-
-Claude / ChatGPT
-
-## Purpose
-
-この依頼の目的。
-
-## Original Prompt
-
-ユーザーが実際に送信した内容。
-
-取得できない場合：
-
-> Original prompt unavailable.
-
-と記載し、捏造しない。
-
-## AI Response Summary
-
-AIが提案・変更した内容。
-
-## Adopted Changes
-
-実際に採用したもの。
-
-## Rejected Changes
-
-提案されたが採用しなかったもの。
-
-## Modified Files
-
-- src/...
-- src/...
-
-## Test Result
-
-実行した確認。
-
-```text
-npm run build
-npm test
-...
-```
-
-## Related Commit
-
-Commit hashが存在する場合のみ記載。
-```
-
----
-
-# Prompt Numbering
-
-番号はAIごとではなく、プロジェクト全体で連番とする。
-
-Claude：
-
-```text
-001
-003
-005
-```
-
-ChatGPT：
-
-```text
-002
-004
-006
-```
-
-のように混在して問題ない。
-
-時系列を優先する。
+作業の引き継ぎ (利用制限・コンテキスト切れ・別セッション・別AI) には
+**`DEVELOPMENT_STATUS.md`** を使う。これは削除せず、大きな変更・機能完成・バグ発見のたびに更新する。
 
 ---
 
@@ -169,7 +70,7 @@ ChatGPT：
 別のAIへ作業を引き継ぐ場合、そのAIはまず、
 
 1. `GAME_SPEC.md`
-2. 最新のPrompt Logs
+2. `DEVELOPMENT_STATUS.md`
 3. Git diff
 4. 関連コード
 
@@ -311,8 +212,9 @@ Network Requestが外部へ発生した場合は修正する。
 [ ] Weak NPC
 [ ] Normal NPC
 [ ] Strong NPC
+[ ] Ultimate (最強) NPC
 [ ] BATTLE DUEL
-[ ] 3コース
+[ ] 10コース (各コースのギミック)
 [ ] 10車種
 [ ] アイテム
 [ ] 銃

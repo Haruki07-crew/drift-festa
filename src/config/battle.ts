@@ -27,6 +27,12 @@ export interface BattleAiDifficulty {
   itemDecisionDelay: number;
   /** アイテムボックスへ寄せる最大横移動 [m] */
   itemSeekMaxOffset: number;
+  /** 予測命中時間がこれより長い (遠すぎる・逃げられる) 場合は撃たない [s] */
+  maxInterceptTime: number;
+  /** 必要なアイテム (弾切れ・回復なし) がある時だけボックスを取りに行く (false = 常に寄せる) */
+  seekItemsOnlyWhenNeeded: boolean;
+  /** 相手より後ろにいる時は直線を待たずに Boost で追い上げる */
+  boostWhenBehind: boolean;
 }
 
 export const battleConfig = {
@@ -92,6 +98,9 @@ export const battleConfig = {
       boostStraightLength: 60,
       itemDecisionDelay: 2.5,
       itemSeekMaxOffset: 2,
+      maxInterceptTime: 1.2,
+      seekItemsOnlyWhenNeeded: false,
+      boostWhenBehind: false,
     },
     normal: {
       reactionTime: 0.3,
@@ -106,6 +115,9 @@ export const battleConfig = {
       boostStraightLength: 90,
       itemDecisionDelay: 1.2,
       itemSeekMaxOffset: 4,
+      maxInterceptTime: 0.9,
+      seekItemsOnlyWhenNeeded: false,
+      boostWhenBehind: false,
     },
     strong: {
       reactionTime: 0.14,
@@ -120,6 +132,27 @@ export const battleConfig = {
       boostStraightLength: 110,
       itemDecisionDelay: 0.5,
       itemSeekMaxOffset: 6,
+      maxInterceptTime: 0.8,
+      seekItemsOnlyWhenNeeded: false,
+      boostWhenBehind: true,
+    },
+    /** 最強: 高精度な偏差射撃・無駄撃ちなし・戦略的なアイテム使用 (強制命中はしない) */
+    ultimate: {
+      reactionTime: 0.08,
+      aimErrorRad: 0.009,
+      predictionAccuracy: 1.0,
+      fireRange: 140,
+      fireAngleTolerance: 0.025,
+      fireDecisionRate: 0.95,
+      conserveAmmoBelow: 6,
+      conserveRange: 70,
+      recoveryHpThreshold: 55,
+      boostStraightLength: 100,
+      itemDecisionDelay: 0.25,
+      itemSeekMaxOffset: 7,
+      maxInterceptTime: 0.7,
+      seekItemsOnlyWhenNeeded: true,
+      boostWhenBehind: true,
     },
   } satisfies Record<NpcDifficulty, BattleAiDifficulty>,
 };

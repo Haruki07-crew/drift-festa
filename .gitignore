@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.log
 .DS_Store
+# Local AI working files
+.ai-local/
+
+# AI prompt history is no longer tracked
+docs/prompts/

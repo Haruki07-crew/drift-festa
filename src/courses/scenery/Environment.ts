@@ -116,7 +116,8 @@ export class CourseEnvironment {
     const env = track.def.environment;
     const rng = new SeededRandom(track.def.id.length * 97 + 13);
     const kind = env.scenery;
-    const count = kind === 'harbor' ? 0 : 26;
+    // 遠景の山は屋外の自然のコースだけ (都市・空中・室内のコースには出さない)
+    const count = kind === 'circuit' || kind === 'touge' || kind === 'frost' || kind === 'jungle' || kind === 'aqua' ? 26 : 0;
     if (count === 0) return;
     const baseGeo = flatten(new THREE.ConeGeometry(1, 1, 5, 1));
     baseGeo.translate(0, 0.5, 0);

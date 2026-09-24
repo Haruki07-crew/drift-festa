@@ -13,7 +13,7 @@ import { ChaseCamera } from '../camera/ChaseCamera';
 import { audioConfig } from '../config/audio';
 import { battleConfig } from '../config/battle';
 import { getCourseDef } from '../config/courses';
-import { controlsConfig } from '../config/controls';
+import { controlsConfig, drivingBindings } from '../config/controls';
 import { gameConfig } from '../config/game';
 import { ITEM_DEFS } from '../config/items';
 import { cameraConfig } from '../config/graphics';
@@ -129,6 +129,8 @@ export class RaceSession {
   private finishTimer = 0;
   private fpsSmoothed = 60;
   private disposed = false;
+  /** 通常時の霧 (水中の霧と切り替えるため) */
+  private baseFog: { color: number; near: number; far: number } | null = null;
   /** デバッグ: 自動運転中の人間の車 */
   private readonly autopilots = new Map<RaceCar, NpcDriver>();
   private timeScale = 1;
@@ -154,12 +156,29 @@ export class RaceSession {
         onRespawn: (car) => this.onRespawn(car),
         onLap: (car) => this.onLap(car),
         onFinish: (car, pos) => this.onFinish(car, pos),
+        onBoostPad: (car) => {
+          const v = this.viewOf(car);
+          if (v) this.deps.audio.play('boostPad', v.pan);
+        },
+        onJump: (car) => {
+          const v = this.viewOf(car);
+          if (v) this.deps.audio.play('jump', v.pan);
+        },
+        onLanding: (car, speed) => {
+          const v = this.viewOf(car);
+          if (!v) return;
+          v.camera.addShake(speed * cameraConfig.shakePerImpactSpeed * 0.6);
+          this.deps.audio.playImpact(speed * 0.6, v.pan);
+        },
+        onObstacleHit: (car, speed) => this.onImpact(car, speed, true),
       },
       ideal,
     );
 
     // --- 描画 ---
-    this.courseView = new CourseView(track, this.scene, preset);
+    this.courseView = new CourseView(track, this.scene, preset, this.world.gimmicks);
+    const fog = this.scene.fog;
+    this.baseFog = fog instanceof THREE.Fog ? { color: fog.color.getHex(), near: fog.near, far: fog.far } : null;
     this.shadowTexture = makeShadowTexture();
     const humans = cars.filter((c) => c.isHuman);
     const split = humans.length > 1;
@@ -195,11 +214,7 @@ export class RaceSession {
       hud.root.style.width = `${viewport.width * 100}%`;
       deps.hudLayer.append(hud.root);
       const pan = split ? (i === 0 ? -audioConfig.splitPan : audioConfig.splitPan) : 0;
-      const bindings = isBattle
-        ? controlsConfig.battle.drive
-        : car.playerIndex === 0
-          ? controlsConfig.pureRace.player1
-          : controlsConfig.pureRace.player2;
+      const bindings = drivingBindings(this.setup.mode, humans.length, car.playerIndex);
       this.views.push({
         car,
         camera,
@@ -326,6 +341,14 @@ export class RaceSession {
     }
   }
 
+  /** デバッグ: 人間の車をコース上の割合 frac (0..1) の位置へ移動 */
+  debugTeleport(frac: number): void {
+    for (const v of this.views) {
+      this.world.placeCarAt(v.car, this.world.track.fracToS(frac), 0);
+      v.camera.snap(v.car.body);
+    }
+  }
+
   /** デバッグ: 人間の車を STRONG 相当の NPC ロジックで自動運転 */
   private toggleAutopilot(): void {
     const track = this.world.track;
@@ -336,7 +359,7 @@ export class RaceSession {
       }
       const pattern = { ...generateNpcPatterns(track.def, 'strong')[0]!, mistakeRatePerMinute: 0 };
       const line = RacingLine.blend(track, this.world.idealOffsets, pattern.lineBlend, 0);
-      const driver = new NpcDriver(pattern, v.car.id, v.car.body, track, line, computeSpeedProfile(line, v.car.spec, pattern));
+      const driver = new NpcDriver(pattern, v.car.id, v.car.body, track, line, computeSpeedProfile(line, v.car.spec, pattern), this.world.gimmicks);
       driver.reset();
       this.autopilots.set(v.car, driver);
     }
@@ -429,6 +452,7 @@ export class RaceSession {
       model.update(car.body, dt, car.ghostTimer > 0);
       this.emitEffects(car);
     }
+    this.courseView.update(dt);
     this.smoke.update(dt);
     this.sparks.update(dt);
     this.boostFx.update(dt);
@@ -514,7 +538,7 @@ export class RaceSession {
       }
     }
     const c = this.battle?.combatantOf(car);
-    if (c && c.boosting && Math.random() < 0.8) {
+    if (((c && c.boosting) || b.padBoostTimer > 0) && Math.random() < 0.8) {
       const x = b.x - b.forwardX * 2.3;
       const z = b.z - b.forwardZ * 2.3;
       this.boostFx.emit(x, b.y + 0.5, z, -b.forwardX * 6 + b.vx * 0.5, 0, -b.forwardZ * 6 + b.vz * 0.5);
@@ -529,7 +553,25 @@ export class RaceSession {
       this.smoke.setViewportHeight(h);
       this.sparks.setViewportHeight(h);
       this.boostFx.setViewportHeight(h);
+      this.applyViewFog(v.car);
       render.renderViewport(this.scene, v.camera.camera, v.viewport);
+    }
+  }
+
+  /** 見ている車が水中なら霧を水中用にする (2人プレイでも画面ごとに切り替わる) */
+  private applyViewFog(car: RaceCar): void {
+    const fog = this.scene.fog;
+    const base = this.baseFog;
+    if (!(fog instanceof THREE.Fog) || !base) return;
+    const env = this.world.track.def.environment;
+    if (car.body.transformMode === 'underwater' && env.underwaterFogColor !== undefined) {
+      fog.color.setHex(env.underwaterFogColor);
+      fog.near = 10;
+      fog.far = 170;
+    } else {
+      fog.color.setHex(base.color);
+      fog.near = base.near;
+      fog.far = base.far;
     }
   }
 

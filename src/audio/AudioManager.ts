@@ -23,7 +23,9 @@ export type SfxName =
   | 'itemUse'
   | 'itemDenied'
   | 'boost'
-  | 'recovery';
+  | 'recovery'
+  | 'boostPad'
+  | 'jump';
 
 export class AudioManager {
   private ctx: AudioContext | null = null;
@@ -179,6 +181,14 @@ export class AudioManager {
         this.sweep(panner, 'sawtooth', 200, 1200, 0.5, sfx.itemVolume * 0.6, t);
         this.noiseBurst(panner, 0.5, sfx.itemVolume * 0.5, 1800, t);
         cleanupAfter(0.7);
+        break;
+      case 'boostPad':
+        this.sweep(panner, 'sawtooth', 300, 900, 0.3, sfx.itemVolume * 0.45, t);
+        cleanupAfter(0.4);
+        break;
+      case 'jump':
+        this.sweep(panner, 'triangle', 260, 620, 0.25, sfx.itemVolume * 0.5, t);
+        cleanupAfter(0.35);
         break;
       case 'recovery':
         [523, 659, 784, 1047].forEach((f, i) => this.tone(panner, 'sine', f, 0.18, sfx.itemVolume, t + i * 0.08));

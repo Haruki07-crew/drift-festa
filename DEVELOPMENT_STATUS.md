@@ -6,7 +6,7 @@
 
 ## 最終更新
 2026-09-25 (Session 3 / Claude Opus 5.5) — **v3.0.0 完了** (依頼 .ai-local/requests/2026-09-25_course-expansion-and-quality-improvements.md の全項目)
-ブランチ `feature/v3-course-expansion` にコミット済み (main へのマージ・push は未実施)
+main にマージ・push 済み (作業ブランチ `feature/v3-course-expansion`)
 
 ## 現在の状態: v3.0.0
 
@@ -137,9 +137,8 @@ npm run sim            → 10コース × 4難易度 全車完走 (復帰は各�
 
 ## 次にやるとよいこと
 1. 上の Human Playtest Required を実際に遊んで確認し、src/config/ の値で調整 (gimmicks.ts / graphics.ts / courses/*.ts / npc.ts)
-2. 問題がなければ `feature/v3-course-expansion` を main へマージ (push はユーザーの指示で)
-3. 文化祭 PC で ai_workflow.md の Festival Release Checklist
-4. (任意) 新ギミックの効果音 (跳ね橋のベル・落石・波・加速ゲート)、★フィルタ
+2. 文化祭 PC で ai_workflow.md の Festival Release Checklist
+3. (任意) 新ギミックの効果音 (跳ね橋のベル・落石・波・加速ゲート)、★フィルタ
 
 ## 次に実行するコマンド
 ```bash

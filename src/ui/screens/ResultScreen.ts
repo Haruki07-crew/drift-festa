@@ -3,7 +3,6 @@
  * もう一度 / 車を変更 / コースを変更 / タイトルへ戻る を選べる。
  * 一定時間操作がなければタイトルへ自動復帰 (設定で変更・無効化可能)。
  */
-import { gameConfig } from '../../config/game';
 import { formatRaceTime } from '../../game/RaceProgress';
 import type { RaceResult } from '../../game/RaceSession';
 import { el, setText } from '../dom';
@@ -39,13 +38,16 @@ export function showResult(
   if (isBattle && result.battle) title = result.battle.won ? 'YOU WIN!' : 'YOU LOSE...';
   else if (humanWinner) title = result.setup.humanCarIds.length > 1 ? `P${(result.entries[0]?.playerIndex ?? 0) + 1} WIN!` : 'YOU WIN!';
   head.append(el('h2', `result-title ${humanWinner || result.battle?.won ? 'win' : ''}`, title));
-  head.append(el('div', 'result-course', `${result.courseName} ・ ${isBattle ? 'BATTLE DUEL' : 'PURE RACE'} ・ ${gameConfig.laps} LAPS`));
+  const p2p = result.raceType === 'pointToPoint';
+  const format = p2p ? `POINT TO POINT ${(result.raceLength / 1000).toFixed(1)} km` : `${result.laps} LAPS`;
+  head.append(el('div', 'result-course', `${result.courseName} ・ ${isBattle ? 'BATTLE DUEL' : 'PURE RACE'} ・ ${format}`));
   root.append(head);
 
   const table = el('table', 'result-table');
   const thead = el('thead');
   const hr = el('tr');
-  for (const h of ['順位', 'ドライバー', '車', 'タイム', 'ベストラップ']) hr.append(el('th', '', h));
+  // Point to Point は周回がないので、ベストラップの代わりに平均速度を出す
+  for (const h of ['順位', 'ドライバー', '車', 'タイム', p2p ? '平均速度' : 'ベストラップ']) hr.append(el('th', '', h));
   thead.append(hr);
   table.append(thead);
   const tbody = el('tbody');
@@ -58,8 +60,9 @@ export function showResult(
     tr.append(name);
     tr.append(el('td', 'car', e.carName));
     tr.append(el('td', 'time', e.finishTime !== null ? formatRaceTime(e.finishTime) : 'DNF'));
-    const lap = el('td', 'lap', formatRaceTime(e.bestLap));
-    if (rec?.newLapRecord) lap.append(el('span', 'badge', 'BEST LAP'));
+    const avg = e.finishTime !== null && e.finishTime > 0 ? `${Math.round((result.raceLength / e.finishTime) * 3.6)} km/h` : '--';
+    const lap = el('td', 'lap', p2p ? avg : formatRaceTime(e.bestLap));
+    if (!p2p && rec?.newLapRecord) lap.append(el('span', 'badge', 'BEST LAP'));
     tr.append(lap);
     tbody.append(tr);
   }

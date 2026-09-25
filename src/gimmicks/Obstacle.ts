@@ -23,6 +23,14 @@ export interface ObstacleState {
   warn: boolean;
   /** ゲートの閉まり具合 0 (開) .. 1 (閉) (見た目用) */
   closed: number;
+  /** 落下物の高さの割合 0 (路面) .. 1 (上空) (見た目用) */
+  lift: number;
+  /** 見えているか (落下物は消えている時間がある) */
+  shown: boolean;
+}
+
+export function createObstacleState(): ObstacleState {
+  return { lateral: 0, angle: 0, active: true, warn: false, closed: 1, lift: 0, shown: true };
 }
 
 export interface LateralInterval {
@@ -52,7 +60,7 @@ export class Obstacle {
   readonly baseY: number;
 
   // 現在の状態 (update で更新)
-  readonly state: ObstacleState = { lateral: 0, angle: 0, active: true, warn: false, closed: 1 };
+  readonly state: ObstacleState = createObstacleState();
   x = 0;
   z = 0;
   heading = 0;
@@ -82,12 +90,14 @@ export class Obstacle {
   }
 
   /** 時刻 t の状態 (予測にも使う) */
-  stateAt(t: number, out: ObstacleState = { lateral: 0, angle: 0, active: true, warn: false, closed: 1 }): ObstacleState {
+  stateAt(t: number, out: ObstacleState = createObstacleState()): ObstacleState {
     const m = this.motion;
     out.angle = 0;
     out.warn = false;
     out.active = true;
     out.closed = 1;
+    out.lift = 0;
+    out.shown = true;
     switch (m.kind) {
       case 'static':
         out.lateral = m.lateral;
@@ -126,6 +136,34 @@ export class Obstacle {
         const warnU = gimmickConfig.obstacle.crossWarnSeconds / m.period;
         out.warn = u > 1 - warnU;
         out.active = Math.abs(out.lateral) < this.roadHalfWidth + this.halfWidth + 1;
+        break;
+      }
+      case 'drop': {
+        // 予告 (影) → 落下 → 道路に残る → 消える、を周期ごとに laterals の順で繰り返す
+        const d = gimmickConfig.drop;
+        const cycle = t / m.period + (m.phase ?? 0);
+        const k = Math.floor(cycle);
+        const tc = frac(cycle) * m.period;
+        const n = m.laterals.length;
+        out.lateral = n > 0 ? m.laterals[((k % n) + n) % n]! : 0;
+        if (tc < d.warnSeconds) {
+          out.warn = true;
+          out.active = false;
+          out.shown = false;
+          out.lift = 1;
+        } else if (tc < d.warnSeconds + d.fallSeconds) {
+          const f = (tc - d.warnSeconds) / d.fallSeconds;
+          out.lift = 1 - f * f;
+          out.warn = true;
+          // 落ち切る直前から当たる
+          out.active = f > 0.75;
+        } else if (tc < d.warnSeconds + d.fallSeconds + d.restSeconds) {
+          out.lift = 0;
+        } else {
+          out.active = false;
+          out.shown = false;
+          out.lift = 1;
+        }
         break;
       }
     }
@@ -167,6 +205,12 @@ export class Obstacle {
     if (m.kind === 'cross') {
       const u = frac(t / m.period + (m.phase ?? 0));
       return u < m.crossFraction ? (m.crossFraction - u) * m.period : 0;
+    }
+    if (m.kind === 'drop') {
+      const d = gimmickConfig.drop;
+      const tc = frac(t / m.period + (m.phase ?? 0)) * m.period;
+      const end = d.warnSeconds + d.fallSeconds + d.restSeconds;
+      return tc < end ? end - tc : 0;
     }
     return 0;
   }

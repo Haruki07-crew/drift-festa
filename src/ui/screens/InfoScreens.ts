@@ -2,6 +2,7 @@
  * 設定画面・あそびかた・ポーズメニュー・ロード中表示。
  */
 import { graphicsConfig, type GraphicsQuality } from '../../config/graphics';
+import { physicsConfig } from '../../config/physics';
 import { THEME_ORDER, UI_THEMES } from '../../config/themes';
 import type { GameSettings, StorageManager } from '../../storage/StorageManager';
 import { el } from '../dom';
@@ -138,7 +139,7 @@ export function showHowToPlay(ui: UIManager, onBack: () => void): void {
     ]),
     card('ルール', [
       ['3周', '先にゴールした人の勝ち'],
-      ['コースアウト', 'チェックポイントへ戻って6秒操作不能'],
+      ['コースアウト', `チェックポイントへ戻って${physicsConfig.respawn.lockSeconds}秒操作不能`],
       ['ドリフト', 'キーを押しながらハンドル。逆ハンで角度を調整'],
       ['Esc', 'ポーズ'],
     ]),

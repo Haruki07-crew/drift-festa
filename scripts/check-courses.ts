@@ -1,6 +1,7 @@
 /**
  * コース形状の検証スクリプト。
- *   npm run check:courses            → 全長 / 最小半径 / 近接区間のクリアランスを表示
+ *   npm run check:courses            → 全長 / 最小半径 / 近接区間のクリアランス / 構造 (種類・CP・ジャンプ着地・
+ *                                      NPC ライン) / Road Safety Corridor (地形・背景物の侵入) を検査
  *   npm run check:courses -- --ppm D → D/<course>.ppm に俯瞰図を出力 (確認用)
  *
  * 新しいコースを追加したら必ず実行し、コース同士の重なり (交差) がないか確認すること。
@@ -9,11 +10,15 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { COURSES } from '../src/config/courses';
 import { Track } from '../src/courses/Track';
+import { checkCourseScene } from './lib/courseSceneCheck';
+import { checkCourseStructure } from './lib/courseStructureCheck';
 
 const args = process.argv.slice(2);
 const ppmIndex = args.indexOf('--ppm');
 const ppmDir = ppmIndex >= 0 ? args[ppmIndex + 1] : undefined;
 const printCps = args.includes('--cp');
+/** --fast: 地形・背景物の侵入検査 (Road Safety Corridor) を省略 */
+const fast = args.includes('--fast');
 const only = args.find((a) => !a.startsWith('--') && a !== ppmDir);
 
 let failed = false;
@@ -58,16 +63,39 @@ for (const def of COURSES) {
       }
     }
   }
-  const lapSecondsAt150 = track.length / (150 / 3.6);
+  const lapSecondsAt150 = track.raceLength / (150 / 3.6);
   const ok = minClear > 4;
   if (!ok) failed = true;
   console.log(
-    `${def.id.padEnd(8)} length=${track.length.toFixed(0)}m samples=${n} ` +
+    `${def.id.padEnd(8)} [${track.closed ? 'circuit' : 'P2P'}] length=${track.length.toFixed(0)}m race=${track.raceLength.toFixed(0)}m samples=${n} ` +
       `minRadius=${(1 / maxK).toFixed(1)}m@s=${maxKAt.toFixed(0)} ` +
       `minClearance=${minClear.toFixed(1)}m (s=${minPair[0]!.toFixed(0)} vs ${minPair[1]!.toFixed(0)}) ` +
       `y=[${track.bounds.minY.toFixed(0)},${track.bounds.maxY.toFixed(0)}] ` +
-      `lap@150kmh≈${lapSecondsAt150.toFixed(0)}s ${ok ? 'OK' : 'NG (overlap!)'}`,
+      `${track.closed ? 'lap' : 'run'}@150kmh≈${lapSecondsAt150.toFixed(0)}s ${ok ? 'OK' : 'NG (overlap!)'}`,
   );
+
+  const structure = checkCourseStructure(track);
+  for (const issue of structure) {
+    if (issue.level === 'NG') failed = true;
+    console.log(`         structure: ${issue.level} ${issue.message}`);
+  }
+  if (structure.length === 0) console.log('         structure: OK');
+
+  // Road Safety Corridor: 地形・背景物が走れる範囲に覆いかぶさっていないか
+  if (!fast) {
+    const intrusions = checkCourseScene(def);
+    if (intrusions.length === 0) {
+      console.log(`         road corridor: OK (地形・背景物の侵入なし)`);
+    } else {
+      failed = true;
+      for (const r of intrusions) {
+        console.log(
+          `         road corridor: NG ${r.object} x${r.count} 最大 路面+${r.worst.height.toFixed(2)}m ` +
+            `(s=${r.worst.s.toFixed(0)} 周回${((r.worst.s / track.length) * 100).toFixed(1)}% lateral=${r.worst.lateral.toFixed(1)})`,
+        );
+      }
+    }
+  }
 
   if (ppmDir) {
     const size = 600;

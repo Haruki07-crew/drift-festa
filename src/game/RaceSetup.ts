@@ -25,7 +25,9 @@ export function courseTiming(track: Track): CourseTiming {
   return {
     length: track.length,
     checkpoints: track.checkpoints,
-    laps: gameConfig.laps,
+    // Point to Point は周回しない (スタート → ゴールの1回)
+    laps: track.closed ? gameConfig.laps : 1,
+    closed: track.closed,
     maxStep: track.def.checkpointWindow,
   };
 }

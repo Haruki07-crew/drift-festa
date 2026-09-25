@@ -86,6 +86,8 @@ export class NpcDriver {
   speedCapMul = 1;
   /** 動けなくなって復帰を要求している */
   wantsRespawn = false;
+  /** 閉じたゲート (遮断機) が開くのを待っている (この間は「動けない」とみなさない) */
+  private waitingForGate = false;
 
   readonly debug: NpcDebugInfo = {
     targetX: 0,
@@ -197,7 +199,7 @@ export class NpcDriver {
     if (this.gimmicks && this.gimmicks.obstacles.length > 0) {
       if (this.obstacleSideTimer > 0) this.obstacleSideTimer -= dt;
       else this.obstacleSide = 0;
-      const adv = this.gimmicks.adviseObstacles(s, speed, desired, maxOff, p.obstacleAnticipation, this.advice, this.obstacleSide);
+      const adv = this.gimmicks.adviseObstacles(s, speed, desired, maxOff, p.obstacleAnticipation, this.advice, this.obstacleSide, body.trackLateral);
       if (adv.obstacle) {
         if (adv.lateral !== null) {
           this.obstacleSide = adv.lateral < desired ? -1 : 1;
@@ -211,11 +213,31 @@ export class NpcDriver {
           this.debug.decision = 'wait for gate';
         }
         obstacleSpeedCap = adv.speedCap;
+        // 閉じたゲートの前で待っている / 開閉するゲートのすぐ手前にいる間は、止まっていても復帰させない
+        // (ゲートは周期的に必ず開くので、待てば通れる)
+        const kind = adv.obstacle.motion.kind;
+        const nearGate = (kind === 'gate' || kind === 'cross') && this.track.deltaS(s, adv.obstacle.s) < 20;
+        this.waitingForGate = (adv.lateral === null && adv.speedCap < Infinity) || nearGate;
+      } else {
+        this.waitingForGate = false;
+      }
+    }
+    // 動く足場: 到達時刻の足場の中心を狙う (予測精度は obstacleAnticipation。低いと足場を外して落ちることもある)
+    let onPlatform = false;
+    if (this.gimmicks && this.gimmicks.platforms.length > 0) {
+      const pf = this.gimmicks.platformAhead(s, speed, p.obstacleAnticipation);
+      if (pf) {
+        const lim = Math.max(0, pf.halfWidth - gimmickConfig.platform.npcMargin);
+        desired = clamp(clamp(desired, pf.center - lim, pf.center + lim), -maxOff, maxOff);
+        onPlatform = true;
+        this.debug.gimmickTarget = 'platform';
+        this.debug.decision = pf.ds > 0 ? 'aim platform' : 'ride platform';
       }
     }
     // ラインへは滑らかに戻る (固定ラインへ無理やり戻って壁に突っ込まない)
     const returning = Math.abs(desired) < Math.abs(this.currentOffset);
-    const rate = returning && this.avoidingId === null ? rt.lineReturnRate : rt.offsetChangeRate;
+    // 足場は動くので素早く合わせる
+    const rate = onPlatform ? rt.offsetChangeRate * 2 : returning && this.avoidingId === null ? rt.lineReturnRate : rt.offsetChangeRate;
     this.currentOffset = approach(this.currentOffset, desired, rate * dt);
     // 大きくラインを外れている時 (接触後など) は現在地から徐々に寄せる
     const lateralError = body.trackLateral - this.currentOffset;
@@ -429,7 +451,7 @@ export class NpcDriver {
     for (const other of traffic) {
       if (other.id === this.carId || !other.body.collidable || other.body.airborne) continue;
       const ds = this.track.deltaS(s, other.body.trackS);
-      if (ds <= 0 || ds > rt.awarenessDistance) continue;
+      if (ds <= rt.alongsideDistance || ds > rt.awarenessDistance) continue;
       if (Math.abs(other.body.trackLateral - myLat) > 2.6) continue;
       const otherSpeed = Math.max(0, other.body.forwardSpeed);
       const c = otherSpeed + (ds - rt.followGap) * 0.9;
@@ -466,7 +488,7 @@ export class NpcDriver {
   /** 前進が止まっている時間を監視し、長すぎれば復帰を要求 (NPC のみ) */
   private updateProgressWatch(dt: number, s: number): void {
     const moved = this.track.deltaS(this.lastProgressS, s);
-    if (moved > 3) {
+    if (moved > 3 || this.waitingForGate) {
       this.lastProgressS = s;
       this.noProgressTimer = 0;
     } else {

@@ -4,15 +4,23 @@
  * - 見えないチェックポイントを順番に通過した場合のみ周回として認める
  *   → 逆走による不正周回・スタートライン往復・大幅ショートカットを防止
  * - 順位は「周回数 → 通過チェックポイント → 次チェックポイントまでの進行度」で算出
+ * - Point to Point (closed = false): チェックポイントの最後がゴールライン。周回はなく、
+ *   スタートライン通過で計時開始 → 中間チェックポイントを順に通過 → ゴールライン通過でゴール
  * - タイム差は、前の車が自分の現在地点を通過した時刻との差で算出 (+1.42s 表示用)
  */
 
 export interface CourseTiming {
-  /** 1周の長さ [m] */
+  /** 1周の長さ [m] (Point to Point は道全体の長さ) */
   length: number;
-  /** チェックポイントの s 位置 (0番 = スタートライン、等間隔) */
+  /**
+   * チェックポイントの s 位置 (0番 = スタートライン、等間隔)。
+   * Point to Point では最後の要素がゴールライン。
+   */
   checkpoints: readonly number[];
+  /** 周回数 (Point to Point は 1) */
   laps: number;
+  /** 周回コースか (省略時 true)。false = Point to Point */
+  closed?: boolean;
   /** 1フレームでこれ以上 s が飛んだらワープ/ショートカットとみなし、通過判定しない [m] */
   maxStep: number;
 }
@@ -49,14 +57,21 @@ export class RaceProgress {
     return this.timing.checkpoints.length;
   }
 
+  get closed(): boolean {
+    return this.timing.closed !== false;
+  }
+
   /** 次に通過すべきチェックポイント番号 */
   get nextCheckpoint(): number {
+    if (!this.closed) return Math.min(this.passed, this.checkpointCount - 1);
     return this.passed % this.checkpointCount;
   }
 
   /** 最後に通過したチェックポイント番号 (スタート前は -1) */
   get lastCheckpoint(): number {
-    return this.passed === 0 ? -1 : (this.passed - 1) % this.checkpointCount;
+    if (this.passed === 0) return -1;
+    if (!this.closed) return Math.min(this.passed - 1, this.checkpointCount - 1);
+    return (this.passed - 1) % this.checkpointCount;
   }
 
   /** HUD表示用の周回 (1..laps) */
@@ -66,7 +81,36 @@ export class RaceProgress {
 
   /** チェックポイント間隔 [m] */
   get segmentLength(): number {
+    if (!this.closed) {
+      const cps = this.timing.checkpoints;
+      return (cps[cps.length - 1]! - cps[0]!) / Math.max(1, cps.length - 1);
+    }
     return this.timing.length / this.checkpointCount;
+  }
+
+  /** スタートからゴールまでの総距離 [m] */
+  get totalDistance(): number {
+    if (!this.closed) return this.segmentLength * (this.checkpointCount - 1);
+    return this.timing.length * this.timing.laps;
+  }
+
+  /** レースの進み具合 0..1 (ゴール = 1) */
+  get completion(): number {
+    if (this.finished) return 1;
+    return clamp01(this.raceDistance / this.totalDistance);
+  }
+
+  /** ゴールまでの残り距離 [m] */
+  get remainingDistance(): number {
+    return Math.max(0, this.totalDistance - Math.max(0, this.raceDistance));
+  }
+
+  /**
+   * 現在の区間番号 (Point to Point の HUD 用)。スタート前 = 0、区間 1..(checkpointCount - 1)。
+   */
+  get section(): number {
+    if (this.passed === 0) return 0;
+    return Math.min(this.passed, this.checkpointCount - 1);
   }
 
   /** レース距離 [m] (スタートラインからの累積。スタート前はマイナス) */
@@ -84,10 +128,10 @@ export class RaceProgress {
   update(s: number, onTrack: boolean, time: number): boolean {
     let lapCompleted = false;
     if (!this.finished && this.lastS !== null && onTrack) {
-      const step = deltaS(this.lastS, s, this.timing.length);
+      const step = this.delta(this.lastS, s);
       if (step > 0 && step <= this.timing.maxStep) {
         const cpS = this.timing.checkpoints[this.nextCheckpoint]!;
-        const a = deltaS(this.lastS, cpS, this.timing.length);
+        const a = this.delta(this.lastS, cpS);
         if (a >= 0 && a < step) {
           lapCompleted = this.passCheckpoint(time);
         }
@@ -108,6 +152,7 @@ export class RaceProgress {
   private passCheckpoint(time: number): boolean {
     const cp = this.nextCheckpoint;
     this.passed++;
+    if (!this.closed) return this.passPointToPoint(cp, time);
     if (cp !== 0) {
       return false;
     }
@@ -132,12 +177,33 @@ export class RaceProgress {
     return true;
   }
 
+  /** Point to Point: 0番 = スタート (計時開始)、最後 = ゴール */
+  private passPointToPoint(cp: number, time: number): boolean {
+    if (cp === 0) {
+      this.lap = 1;
+      this.lapStartTime = time;
+      return false;
+    }
+    if (cp < this.checkpointCount - 1) return false;
+    const total = time - this.lapStartTime;
+    this.lapTimes.push(total);
+    this.bestLap = total;
+    this.finished = true;
+    this.finishTime = time;
+    return true;
+  }
+
+  /** from から to への符号付き距離 (周回コースは周回を考慮) */
+  private delta(from: number, to: number): number {
+    return this.closed ? deltaS(from, to, this.timing.length) : to - from;
+  }
+
   private updateProgressKey(s: number): void {
     if (this.finished) {
       return;
     }
     const nextS = this.timing.checkpoints[this.nextCheckpoint]!;
-    const toNext = deltaS(s, nextS, this.timing.length);
+    const toNext = this.delta(s, nextS);
     const seg = this.segmentLength;
     const frac = clamp01(1 - toNext / seg);
     this.progressKey = this.passed + frac;

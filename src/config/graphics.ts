@@ -74,8 +74,10 @@ export const graphicsConfig = {
 export const cameraConfig = {
   /** 車の後方距離 [m] */
   distance: 7.2,
-  /** 車からの高さ [m] */
-  height: 2.9,
+  /** 車からの高さ [m] (v3: 先のコースが見やすいよう少し高く) */
+  height: 3.3,
+  /** 高速時に加える高さ [m] */
+  speedHeightBoost: 0.6,
   /** 注視点の前方オフセット [m] */
   lookAhead: 5.5,
   /** 注視点の高さ [m] */
@@ -108,4 +110,64 @@ export const cameraConfig = {
   near: 0.3,
   /** スタート前のイントロで回り込むカメラ半径 [m] */
   introRadius: 14,
+  /**
+   * コースの先を見る注視点 (v3)。車の正面だけでなくコース中心線の少し先へ視線を寄せ、
+   * カーブの先が見えるようにする。高速・急カーブほど先を見る。
+   */
+  trackLook: {
+    /** 注視するコース上の距離 = base + 速度 × perSpeed (最大 max) [m] */
+    baseDistance: 12,
+    perSpeed: 0.45,
+    maxDistance: 40,
+    /** コース上の点へ寄せる割合 (0 = 車の正面のみ) */
+    blend: 0.35,
+    /** 急カーブで追加で寄せる割合 (曲率 1/m あたり) と上限 */
+    curvatureBlend: 14,
+    maxBlend: 0.7,
+    /** 注視点の追従速度 [1/s] */
+    response: 5,
+  },
+};
+
+/** 夜コースの視認性 (v3) */
+export const nightVisibilityConfig = {
+  /** 人間が運転する車のヘッドライト (SpotLight 1灯。NPC は発光ランプのみで GPU 負荷を抑える) */
+  headlights: {
+    color: 0xfff2d8,
+    intensity: 120,
+    distance: 110,
+    /** 照らす範囲の半角 [deg] */
+    angleDeg: 32,
+    penumbra: 0.45,
+    decay: 1,
+    /** 照らす点 (車の前方) [m] */
+    targetDistance: 30,
+    height: 1.2,
+  },
+  /** カーブ外側の誘導灯 */
+  guideLights: {
+    /** この曲率 [1/m] 以上のカーブに置く */
+    minCurvature: 1 / 110,
+    spacing: 7,
+    color: 0xffa21f,
+    height: 1.1,
+  },
+  /** 急カーブの矢印看板 (シェブロン) */
+  chevrons: {
+    minCurvature: 1 / 55,
+    spacing: 12,
+  },
+  /** 路肩の反射材 (直線にも置く) */
+  reflectors: {
+    spacing: 10,
+    color: 0x9fe8ff,
+  },
+};
+
+/** 天候の粒子 (v3)。数は画質の sceneryDensity を掛ける */
+export const weatherConfig = {
+  rain: { count: 1400, radius: 55, height: 34, fallSpeed: 34, dropLength: 1.3, color: 0xa8c8ff, opacity: 0.55, slant: 0.18 },
+  sandstorm: { count: 1600, radius: 45, height: 14, windSpeed: 26, size: 0.7, color: 0xf0d8a8, opacity: 0.75 },
+  snow: { count: 900, radius: 50, height: 30, fallSpeed: 3.2, size: 0.45, color: 0xffffff, opacity: 0.85 },
+  aurora: { ribbons: 4, height: 260, length: 1400, colors: [0x3dff9a, 0x39f3ff, 0xb98cff, 0x5affc8] },
 };

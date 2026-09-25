@@ -53,3 +53,21 @@ export const gameConfig = {
 };
 
 export type RaceMode = 'pure' | 'battle';
+
+/** コースの種類ごとの設定 (v3) */
+export const raceTypeConfig = {
+  pointToPoint: {
+    /** スタートラインの手前の助走路 (グリッド 8台分 + 余裕) [m]。コースごとに上書き可 */
+    preludeLength: 60,
+    /** ゴールラインの先の減速用の道 [m]。コースごとに上書き可 */
+    runoutLength: 200,
+    /** スタート〜ゴールの最短距離 [m] (これより短いコース定義はエラー) */
+    minRaceLength: 800,
+    /** ゴール後のブレーキの強さ (0..1)。退避路の中で止まれるように強めにかける */
+    finishBrake: 0.85,
+    /** 道の両端の壁の位置 (端からの距離) [m] */
+    endWallInset: 3,
+    /** ミニマップ (追従表示) に映す範囲の半径 [m]。一本道は長いので自分の周りを拡大して表示する */
+    minimapViewRadius: 230,
+  },
+};

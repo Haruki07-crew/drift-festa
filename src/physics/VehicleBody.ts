@@ -48,8 +48,22 @@ export class VehicleBody {
   surfaceKind: SurfaceKind = 'road';
   /** 変形モード (水中など)。null = 通常 */
   transformMode: TransformMode | null = null;
-  /** ブーストパッドの残り時間 [s] */
+  /** ブーストパッド / 加速ゲートの残り時間 [s] */
   padBoostTimer = 0;
+  /** 効果中のブーストの倍率 (踏んだのがパッドかゲートかで変わる) */
+  boostMaxSpeedMul = 1;
+  boostAccelMul = 1;
+  /**
+   * 区間の効果 (トンネル加速・水しぶき・スリップストリーム)。
+   * GimmickSystem.applyToBody と RaceWorld (スリップストリーム) が毎ステップ設定する
+   */
+  zoneMaxSpeedMul = 1;
+  zoneAccelMul = 1;
+  zoneGripMul = 1;
+  /** 区間の追加の減速 [m/s^2] */
+  zoneDrag = 0;
+  /** スリップストリームの効き 0..1 (前の車の真後ろにいると上がる) */
+  draft = 0;
   surface: Surface = 'road';
   /** コース中心線探索のヒント (前回のサンプル番号) */
   trackHint: number | undefined = undefined;
@@ -99,9 +113,17 @@ export class VehicleBody {
   /** 最高速度 (アイテム・タイヤHP・ブーストパッド・路面・変形の倍率込み) */
   get maxSpeed(): number {
     const surf = gimmickConfig.surfaces[this.surfaceKind].maxSpeedMul;
-    const pad = this.padBoostTimer > 0 ? gimmickConfig.boostPad.maxSpeedMul : 1;
+    const pad = this.padBoostTimer > 0 ? this.boostMaxSpeedMul : 1;
     const tr = this.transformMode ? gimmickConfig.transform[this.transformMode].maxSpeedMul : 1;
-    return kmhToMs(this.spec.maxSpeedKmh) * this.maxSpeedMul * surf * pad * tr;
+    return kmhToMs(this.spec.maxSpeedKmh) * this.maxSpeedMul * surf * pad * tr * this.zoneMaxSpeedMul;
+  }
+
+  /** 区間の効果を無効 (1倍・0) に戻す */
+  resetZoneEffects(): void {
+    this.zoneMaxSpeedMul = 1;
+    this.zoneAccelMul = 1;
+    this.zoneGripMul = 1;
+    this.zoneDrag = 0;
   }
 
   get forwardX(): number {
@@ -141,6 +163,8 @@ export class VehicleBody {
     this.airMode = 'none';
     this.landingSpeed = 0;
     this.padBoostTimer = 0;
+    this.resetZoneEffects();
+    this.draft = 0;
     this.needsRespawn = false;
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;

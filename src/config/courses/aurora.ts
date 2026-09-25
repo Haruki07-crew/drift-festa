@@ -7,7 +7,9 @@ export const circuitAurora: CourseDef = {
   id: 'aurora',
   name: 'Circuit Aurora',
   idPrefix: 'AURORA',
+  raceType: 'circuit',
   description: '初心者向けサーキット。長いストレートと気持ちいい中高速コーナー。',
+  highlight: '長いストレートから高速コーナーへ飛び込む爽快感',
   difficultyStars: 1,
   defaultWidth: 17,
   runoffWidth: 7,
@@ -40,6 +42,7 @@ export const circuitAurora: CourseDef = {
     { x: 36, z: -232 },
     { x: 8, z: -196 },
   ],
+  tips: 'ストレートの終わりで少しだけブレーキ。大きなコーナーはアウト → イン → アウトで気持ちよく！',
   itemBoxes: [
     { at: 0.08, lateral: [-5, 0, 5] },
     { at: 0.3, lateral: [-4, 4] },

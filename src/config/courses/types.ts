@@ -1,7 +1,9 @@
 /**
  * コース設定。
  *
- * コースは制御点を Catmull-Rom スプラインで結んだ周回路として定義する。
+ * コースは制御点を Catmull-Rom スプラインで結んだ道として定義する。
+ * raceType = circuit は周回路 (最後の制御点から最初へ戻る)、pointToPoint は開いた一本道
+ * (最初の制御点 = 助走路の始まり、最後の制御点 = 退避路の終わり)。
  * 新しいコースは COURSES に定義を1つ追加するだけで、選択画面・NPCパターン・
  * チェックポイント・ミニマップ・ベストタイム保存まで自動で対応する。
  *
@@ -15,6 +17,13 @@
  */
 
 import type { GimmickDef } from '../gimmicks';
+
+/**
+ * コースの種類。
+ *   circuit      : 周回コース (スタート = ゴール、規定周回数を走る)
+ *   pointToPoint : スタートからゴールまで一方通行で走る (周回なし)
+ */
+export type RaceType = 'circuit' | 'pointToPoint';
 
 export type EdgeType = 'wall' | 'guardrail' | 'grass' | 'fall';
 
@@ -40,7 +49,40 @@ export interface ItemBoxRow {
   lateral: number[];
 }
 
-export type SceneryKind = 'circuit' | 'touge' | 'harbor' | 'aqua' | 'skyline' | 'frost' | 'magma' | 'neon' | 'jungle' | 'toybox';
+export type SceneryKind =
+  | 'circuit'
+  | 'touge'
+  | 'harbor'
+  | 'aqua'
+  | 'skyline'
+  | 'frost'
+  | 'magma'
+  | 'neon'
+  | 'jungle'
+  | 'toybox'
+  | 'tokyo'
+  | 'alpine'
+  | 'coastal'
+  | 'desert'
+  | 'northern'
+  | 'europe'
+  | 'airport'
+  | 'volcano'
+  | 'mall'
+  | 'school'
+  | 'cloud'
+  | 'space'
+  | 'rain'
+  | 'windfarm';
+
+/** 天候 (v3)。粒子は見ている車の周りだけに出す (軽量) */
+export interface WeatherDef {
+  kind: 'rain' | 'sandstorm' | 'snow' | 'aurora';
+  /** 強さ 0..1 (粒子の量) */
+  intensity?: number;
+  /** 天候が強くなる区間 (割合 0..1)。区間の中では霧が濃くなる (砂嵐・豪雨) */
+  zones?: { from: number; to: number; fogNear: number; fogFar: number; fogColor?: number }[];
+}
 
 export interface CourseEnvironment {
   scenery: SceneryKind;
@@ -72,6 +114,8 @@ export interface CourseEnvironment {
   roadSupports?: 'skirt' | 'pillars' | 'none';
   /** 水中区間の霧の色 (transform: underwater があるコース) */
   underwaterFogColor?: number;
+  /** 天候 (雨・砂嵐・雪・オーロラ) */
+  weather?: WeatherDef;
 }
 
 export interface CourseDef {
@@ -79,8 +123,15 @@ export interface CourseDef {
   name: string;
   /** NPCパターンIDの接頭辞 (例: TOUGE → TOUGE_STRONG_017) */
   idPrefix: string;
+  /** コースの種類 (周回 / スタート→ゴール) */
+  raceType: RaceType;
   description: string;
-  /** 選択画面の難易度表示 (1..5) */
+  /** 見せ場 (このコースならではの一番の見どころ。選択画面に表示) */
+  highlight?: string;
+  /**
+   * 選択画面の難易度表示 (1..5)。★1 とてもかんたん / ★2 はじめての人向け / ★3 ふつう /
+   * ★4 むずかしい / ★5 上級者向け。★2 のコースが一番多くなるようにする (文化祭は初めての人が多い)
+   */
   difficultyStars: number;
   defaultWidth: number;
   runoffWidth: number;
@@ -96,6 +147,15 @@ export interface CourseDef {
   itemBoxes: ItemBoxRow[];
   /** コースギミック (ブーストパッド・路面・ジャンプ・障害物など)。config/gimmicks.ts 参照 */
   gimmicks?: GimmickDef[];
+  /** Point to Point の道の設定 (省略時は config/game.ts の raceTypeConfig.pointToPoint) */
+  pointToPoint?: {
+    /** スタートライン手前の助走路の長さ [m] (制御点の最初からスタートラインまで) */
+    preludeLength?: number;
+    /** ゴールライン後の減速用の道の長さ [m] */
+    runoutLength?: number;
+    /** HUD に表示する区間名 (チェックポイント数と同じ個数。省略時は SECTION 1..) */
+    sectionNames?: string[];
+  };
   /** 選択画面に出す「攻略ポイント」 */
   tips?: string;
   environment: CourseEnvironment;

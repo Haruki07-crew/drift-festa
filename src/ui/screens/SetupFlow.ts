@@ -5,15 +5,13 @@
  * BATTLE DUEL: タイトル → モード → NPC難易度 → 車 → コース
  */
 import { CARS, CAR_STAT_LABELS, normalizedStat, type CarStatKey } from '../../config/cars';
-import { COURSES } from '../../config/courses';
 import { gameConfig } from '../../config/game';
 import { NPC_DIFFICULTIES, npcConfig, type NpcDifficulty } from '../../config/npc';
-import { Track } from '../../courses/Track';
-import { formatRaceTime } from '../../game/RaceProgress';
 import type { RaceSetup } from '../../game/RaceSetup';
 import type { StorageManager } from '../../storage/StorageManager';
 import { colorHex, el } from '../dom';
 import type { UIManager } from '../UIManager';
+import { CourseSelect } from './CourseSelect';
 
 export interface SetupFlowCallbacks {
   onStart: (setup: RaceSetup) => void;
@@ -41,12 +39,13 @@ export class SetupFlow {
   private total = 6;
   private difficulty: NpcDifficulty = 'normal';
   private carIds: string[] = [];
-  private readonly trackPreviewCache = new Map<string, HTMLCanvasElement>();
+  private readonly courseSelect: CourseSelect;
 
   constructor(ui: UIManager, storage: StorageManager, cb: SetupFlowCallbacks) {
     this.ui = ui;
     this.storage = storage;
     this.cb = cb;
+    this.courseSelect = new CourseSelect(ui, storage);
   }
 
   // ------------------------------------------------------------------ タイトル
@@ -251,53 +250,6 @@ export class SetupFlow {
     renderDetail(initial);
   }
 
-  // ------------------------------------------------------------------ コース選択
-  private showCourseSelect(): void {
-    this.cb.onPreviewCar(null);
-    const pref = this.storage.prefs.courseId;
-    const side = el('div', 'course-detail');
-    const renderDetail = (i: number): void => {
-      const c = COURSES[i]!;
-      side.replaceChildren();
-      side.append(el('div', 'course-detail-name', c.name));
-      side.append(el('div', 'course-detail-stars', `難しさ ${'★'.repeat(c.difficultyStars)}${'☆'.repeat(5 - c.difficultyStars)}`));
-      side.append(this.trackPreview(c.id));
-      side.append(el('div', 'course-detail-desc', c.description));
-      if (c.tips) side.append(el('div', 'course-detail-tips', `攻略: ${c.tips}`));
-      const best = this.storage.getBest(c.id);
-      const bt = el('div', 'course-best');
-      bt.append(
-        el('div', '', `ベストタイム ${formatRaceTime(best.raceTime)}${best.raceCarId ? ` (${carName(best.raceCarId)})` : ''}`),
-        el('div', '', `ベストラップ ${formatRaceTime(best.bestLap)}${best.bestLapCarId ? ` (${carName(best.bestLapCarId)})` : ''}`),
-      );
-      side.append(bt);
-    };
-    this.ui.showMenu({
-      title: 'コースをえらぶ',
-      subtitle: `全${COURSES.length}コース・すべて ${gameConfig.laps} 周`,
-      className: 'course-menu',
-      columns: 2,
-      initialIndex: Math.max(0, COURSES.findIndex((c) => c.id === pref)),
-      side,
-      onFocus: renderDetail,
-      options: COURSES.map((c) => ({
-        label: c.name,
-        sub: '★'.repeat(c.difficultyStars),
-        onSelect: () => {
-          this.storage.updatePrefs({ courseId: c.id });
-          this.cb.onStart({
-            mode: this.mode,
-            courseId: c.id,
-            humanCarIds: this.carIds.slice(0, this.mode === 'battle' ? 1 : this.humans),
-            totalCars: this.mode === 'battle' ? 2 : this.total,
-            difficulty: this.difficulty,
-          });
-        },
-      })),
-      onBack: () => this.showCarSelect(this.mode === 'battle' ? 0 : this.humans - 1),
-    });
-  }
-
   /** 結果画面の「車を変更」「コースを変更」用 */
   restartFrom(setup: RaceSetup, step: 'car' | 'course'): void {
     this.mode = setup.mode;
@@ -309,49 +261,20 @@ export class SetupFlow {
     else this.showCourseSelect();
   }
 
-  private trackPreview(courseId: string): HTMLCanvasElement {
-    const cached = this.trackPreviewCache.get(courseId);
-    if (cached) return cached;
-    const def = COURSES.find((c) => c.id === courseId)!;
-    const track = Track.build(def);
-    const size = 220;
-    const canvas = el('canvas', 'course-preview');
-    canvas.width = size * 2;
-    canvas.height = size * 2;
-    canvas.style.width = `${size}px`;
-    canvas.style.height = `${size}px`;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.scale(2, 2);
-      const b = track.bounds;
-      const span = Math.max(b.maxX - b.minX, b.maxZ - b.minZ);
-      const scale = (size - 24) / span;
-      const cx = (b.minX + b.maxX) / 2;
-      const cz = (b.minZ + b.maxZ) / 2;
-      const yr = Math.max(1, b.maxY - b.minY);
-      ctx.lineCap = 'round';
-      for (let i = 0; i < track.samples.length; i++) {
-        const a = track.samples[i]!;
-        const c = track.samples[(i + 1) % track.samples.length]!;
-        const h = (a.y - b.minY) / yr;
-        ctx.strokeStyle = `hsl(${200 - h * 160}, 90%, ${60 + h * 10}%)`;
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.moveTo(size / 2 - (a.x - cx) * scale, size / 2 - (a.z - cz) * scale);
-        ctx.lineTo(size / 2 - (c.x - cx) * scale, size / 2 - (c.z - cz) * scale);
-        ctx.stroke();
-      }
-      const s0 = track.samples[0]!;
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(size / 2 - (s0.x - cx) * scale, size / 2 - (s0.z - cz) * scale, 5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    this.trackPreviewCache.set(courseId, canvas);
-    return canvas;
+  // ------------------------------------------------------------------ コース選択 (CourseSelect.ts)
+  private showCourseSelect(): void {
+    this.cb.onPreviewCar(null);
+    this.courseSelect.show(
+      (courseId) =>
+        this.cb.onStart({
+          mode: this.mode,
+          courseId,
+          humanCarIds: this.carIds.slice(0, this.mode === 'battle' ? 1 : this.humans),
+          totalCars: this.mode === 'battle' ? 2 : this.total,
+          difficulty: this.difficulty,
+        }),
+      () => this.showCarSelect(this.mode === 'battle' ? 0 : this.humans - 1),
+    );
   }
 }
 
-function carName(id: string): string {
-  return CARS.find((c) => c.id === id)?.name ?? id;
-}

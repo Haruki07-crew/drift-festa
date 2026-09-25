@@ -74,6 +74,94 @@
   color: var(--c-bad);
 }
 
+/* スリップストリーム中 */
+.hud-draft {
+  position: absolute;
+  top: -26px;
+  right: 0;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: #ffd23f;
+  color: #111;
+  text-shadow: none;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.hud-draft.on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Point to Point: 周回の代わりの進行表示 */
+.hud-p2p {
+  margin-top: 6px;
+  min-width: 190px;
+}
+
+.hud-p2p-type {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 5px;
+  background: var(--c-accent);
+  color: #111;
+  text-shadow: none;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.hud-p2p-route {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.hud-p2p-start {
+  color: #3dff8a;
+}
+
+.hud-p2p-goal {
+  color: #ff4f79;
+}
+
+.hud-p2p-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.hud-p2p-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #3dff8a, var(--c-accent), #ff4f79);
+}
+
+.hud-p2p-percent {
+  font-size: 26px;
+  font-weight: bold;
+  line-height: 1.1;
+}
+
+.hud-p2p-remain,
+.hud-p2p-section {
+  font-size: 14px;
+  color: var(--c-text-dim);
+}
+
+.hud.split .hud-p2p-percent {
+  font-size: 20px;
+}
+
 .hud-laptime,
 .hud-bestlap {
   font-family: var(--font-mono);

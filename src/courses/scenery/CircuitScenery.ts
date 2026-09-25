@@ -73,7 +73,8 @@ export function buildCircuitScenery(track: Track, preset: QualityPreset, bag: Re
   // スタートゲート
   const s0 = track.samples[0]!;
   const gateH = 8;
-  const gw = s0.halfWidth + 1.8;
+  // 支柱は芝のランオフ (走れる範囲) の外に立てる
+  const gw = s0.halfWidth + track.def.runoffWidth + 1.2;
   const heading = Math.atan2(s0.tx, s0.tz);
   for (const side of [-1, 1]) {
     addBox(stands, s0.x + s0.rx * gw * side, s0.y, s0.z + s0.rz * gw * side, 1.2, gateH, 1.2, heading, 0x30343c);

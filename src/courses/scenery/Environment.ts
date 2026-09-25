@@ -23,6 +23,7 @@ export class CourseEnvironment {
     const span = Math.max(b.maxX - b.minX, b.maxZ - b.minZ);
     this.radius = span / 2 + preset.drawDistance * 0.6;
     this.group.name = 'environment';
+    this.group.userData.clearanceExempt = true;
 
     scene.background = new THREE.Color(env.skyBottom);
     scene.fog = new THREE.Fog(env.fogColor, env.fogNear, Math.min(env.fogFar, preset.drawDistance));

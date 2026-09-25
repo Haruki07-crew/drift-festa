@@ -40,13 +40,14 @@ describe('car config', () => {
 });
 
 describe('course config', () => {
-  it('has at least 3 courses and builds valid tracks', () => {
-    expect(COURSES.length).toBe(10);
+  it('has at least 10 courses and builds valid tracks', () => {
+    expect(COURSES.length).toBeGreaterThanOrEqual(10);
     for (const def of COURSES) {
       const t = Track.build(def);
       expect(t.length).toBeGreaterThan(500);
-      expect(t.checkpoints.length).toBe(def.checkpointCount);
-      expect(t.checkpoints[0]).toBe(0);
+      expect(t.checkpoints.length).toBe(def.checkpointCount + (t.closed ? 0 : 1));
+      // 0番のチェックポイントはスタートライン (周回コースは s = 0)
+      expect(t.checkpoints[0]).toBe(t.startS);
       for (const row of def.itemBoxes) {
         expect(row.at).toBeGreaterThanOrEqual(0);
         expect(row.at).toBeLessThan(1);

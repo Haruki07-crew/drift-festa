@@ -64,7 +64,9 @@ export function buildNeonScenery(track: Track, preset: QualityPreset, bag: Resou
     const p = track.pointAt(s);
     const mat = bag.add(new THREE.MeshBasicMaterial({ color: rng.pick(neon), transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }));
     const m = new THREE.Mesh(ringGeo, mat);
-    m.position.set(p.x, p.y + 22, p.z);
+    // 立体交差の上の道路にもかからない高さに浮かべる
+    m.position.set(p.x, p.y + 30, p.z);
+    m.name = 'holo-ring';
     group.add(m);
     rings.push(m);
   }

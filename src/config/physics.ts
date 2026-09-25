@@ -150,10 +150,10 @@ export const physicsConfig = {
   },
 
   respawn: {
-    /** 復帰後に操作不能となる時間 [s] (仕様: 6秒) */
-    lockSeconds: 6,
+    /** 復帰後に操作不能となる時間 [s] (仕様 v3: 2秒) */
+    lockSeconds: 2,
     /** 復帰後に他車との衝突が無効化される時間 [s] (連続落下防止) */
-    ghostSeconds: 7.5,
+    ghostSeconds: 3.5,
     /** 路面からこれだけ落下したら復帰 [m] */
     fallDepth: 9,
     /** 落下開始からの最大時間 [s] */

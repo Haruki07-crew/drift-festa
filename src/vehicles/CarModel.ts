@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import type { BodyStyle, CarSpec } from '../config/cars';
-import { graphicsConfig } from '../config/graphics';
+import { graphicsConfig, nightVisibilityConfig } from '../config/graphics';
 import { clamp, damp } from '../core/math';
 import type { VehicleBody } from '../physics/VehicleBody';
 import { GeometryBuilder } from '../render/GeometryBuilder';
@@ -45,6 +45,8 @@ export interface CarModelOptions {
   label?: string;
   labelColor?: string;
   castShadow: boolean;
+  /** 夜コースで前を照らすヘッドライト (SpotLight) を付ける。GPU 負荷のため人間の車だけ */
+  headlight?: boolean;
 }
 
 export class CarModel {
@@ -229,6 +231,7 @@ export class CarModel {
     }
 
     this.root.add(this.chassis);
+    if (opts.headlight) this.addHeadlight();
   }
 
   private track<T extends THREE.Material>(m: T): T {
@@ -313,6 +316,17 @@ export class CarModel {
       this.blinkTime = 0;
       this.root.visible = true;
     }
+  }
+
+  /** 夜コース用のヘッドライト。車と一緒に回るよう root の子にする (影は落とさない) */
+  private addHeadlight(): void {
+    const h = nightVisibilityConfig.headlights;
+    const light = new THREE.SpotLight(h.color, h.intensity, h.distance, THREE.MathUtils.degToRad(h.angleDeg), h.penumbra, h.decay);
+    light.castShadow = false;
+    light.position.set(0, h.height, this.dims.length / 2);
+    light.target.position.set(0, 0, h.targetDistance);
+    light.name = 'headlight';
+    this.root.add(light, light.target);
   }
 
   dispose(): void {

@@ -8,6 +8,7 @@ import type { ResourceBag } from '../../render/dispose';
 import type { Track } from '../Track';
 import { iceCrystal, snowPine } from './Props';
 import { TrackProximityGrid, flatten, makeInstanced, scatter, type InstanceSpec, type SceneryResult } from './SceneryUtils';
+import { makeRoundSprite } from './SceneryKit';
 import { buildTerrain } from './Terrain';
 
 export function buildFrostScenery(track: Track, preset: QualityPreset, bag: ResourceBag): SceneryResult {
@@ -109,7 +110,7 @@ export function buildFrostScenery(track: Track, preset: QualityPreset, bag: Reso
   }
   const flakeGeo = bag.add(new THREE.BufferGeometry());
   flakeGeo.setAttribute('position', new THREE.BufferAttribute(flakes, 3).setUsage(THREE.DynamicDrawUsage));
-  const snow = new THREE.Points(flakeGeo, bag.add(new THREE.PointsMaterial({ color: 0xffffff, size: 0.5, transparent: true, opacity: 0.85 })));
+  const snow = new THREE.Points(flakeGeo, bag.add(new THREE.PointsMaterial({ color: 0xffffff, size: 0.5, map: bag.add(makeRoundSprite()), alphaTest: 0.3, transparent: true, opacity: 0.85, depthWrite: false })));
   snow.frustumCulled = false;
   group.add(snow);
   let time = 0;

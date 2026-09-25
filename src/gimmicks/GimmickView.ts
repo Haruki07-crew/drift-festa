@@ -7,7 +7,8 @@ import { gimmickConfig, surfaceProps, type SurfaceKind, type TunnelStyle } from 
 import type { Track } from '../courses/Track';
 import { GeometryBuilder } from '../render/GeometryBuilder';
 import { ResourceBag } from '../render/dispose';
-import type { GimmickSystem, SRange } from './GimmickSystem';
+import type { GimmickSystem, SRange, TunnelZone, WindZone } from './GimmickSystem';
+import { GimmickExtrasView } from './GimmickExtrasView';
 import type { Obstacle } from './Obstacle';
 
 interface ObstacleVisual {
@@ -15,6 +16,10 @@ interface ObstacleVisual {
   root: THREE.Group;
   lamp: THREE.MeshBasicMaterial | null;
   bar: THREE.Object3D | null;
+  /** 落下物の予告の影 (道路に固定) */
+  shadow: THREE.Mesh | null;
+  /** 落下物の本体 (高さを動かす) */
+  body: THREE.Object3D | null;
 }
 
 export class GimmickView {
@@ -26,13 +31,17 @@ export class GimmickView {
   private readonly obstacleVisuals: ObstacleVisual[] = [];
   private readonly windArrows: { mat: THREE.MeshBasicMaterial; zone: number }[] = [];
   private readonly fans: THREE.Object3D[] = [];
+  private readonly windsocks: THREE.Object3D[] = [];
   private seesaw: { mesh: THREE.Mesh; positions: Float32Array; base: Float32Array; sIdx: Float32Array } | null = null;
+  private readonly extras: GimmickExtrasView;
   private time = 0;
 
   constructor(track: Track, system: GimmickSystem) {
     this.track = track;
     this.system = system;
     this.group.name = 'gimmicks';
+    // ギミックは道路上に置く物なので安全帯の検査対象外
+    this.group.userData.clearanceExempt = true;
     this.buildSurfaces();
     this.buildBoostPads();
     this.buildJumps();
@@ -41,6 +50,8 @@ export class GimmickView {
     this.buildObstacles();
     this.buildSeesaw();
     this.buildTunnels();
+    this.extras = new GimmickExtrasView(track, system, this.bag);
+    this.group.add(this.extras.group);
   }
 
   // ------------------------------------------------------------------ 共通
@@ -51,7 +62,11 @@ export class GimmickView {
     const n = this.track.samples.length;
     const start = this.track.sampleIndexAt(r.s);
     const count = Math.ceil(r.len / this.track.spacing);
-    for (let k = 0; k <= count; k++) out.push((start + k) % n);
+    for (let k = 0; k <= count; k++) {
+      const i = start + k;
+      if (!this.track.closed && i >= n - 1) break;
+      out.push(i % n);
+    }
     return out;
   }
 
@@ -103,7 +118,8 @@ export class GimmickView {
           polygonOffset: true,
           polygonOffsetFactor: -1,
           polygonOffsetUnits: -1,
-          emissive: kind === 'glass' ? new THREE.Color(0x2a6a88) : new THREE.Color(0x000000),
+          // ガラスは少し光る、磁力道路は青く光る
+          emissive: new THREE.Color(kind === 'glass' ? 0x2a6a88 : kind === 'magnet' ? 0x1a3aff : 0x000000),
         }),
       );
       const mesh = new THREE.Mesh(this.bag.add(gb.build()), mat);
@@ -116,7 +132,9 @@ export class GimmickView {
   // ------------------------------------------------------------------ ブーストパッド
 
   private buildBoostPads(): void {
-    if (this.system.pads.length === 0) return;
+    // 加速ゲート (kind 'gate') は GimmickExtrasView が描く
+    const pads = this.system.pads.filter((p) => p.kind === 'pad');
+    if (pads.length === 0) return;
     const tex = this.bag.add(makeChevronTexture('#ff2d95', '#ffd23f'));
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
@@ -124,7 +142,7 @@ export class GimmickView {
     const mat = this.bag.add(
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }),
     );
-    for (const pad of this.system.pads) {
+    for (const pad of pads) {
       const geo = this.bag.add(new THREE.PlaneGeometry(pad.halfWidth * 2, pad.halfLength * 2));
       geo.rotateX(-Math.PI / 2);
       const m = new THREE.Mesh(geo, mat);
@@ -225,6 +243,10 @@ export class GimmickView {
       }
       const mesh = new THREE.Mesh(this.bag.add(gb.build()), mat);
       this.group.add(mesh);
+      if (w.style === 'windsock') {
+        this.buildWindsocks(w, zi);
+        return;
+      }
       // 扇風機 (風上側の道路脇)
       const mid = this.track.pointAt(w.s + w.len / 2);
       const side = -dir;
@@ -252,6 +274,34 @@ export class GimmickView {
     });
   }
 
+  /** 吹き流し (屋外の風)。風が吹くと風下へ伸び、止むとしぼむ */
+  private buildWindsocks(w: WindZone, zi: number): void {
+    const poleGeo = this.bag.add(new THREE.CylinderGeometry(0.12, 0.16, 6, 6));
+    poleGeo.translate(0, 3, 0);
+    const poleMat = this.bag.add(new THREE.MeshLambertMaterial({ color: 0xdddddd }));
+    const sockGeo = this.bag.add(new THREE.CylinderGeometry(0.25, 0.7, 3.2, 8, 1, true));
+    // 付け根 (太い側) を原点に、+Z (風下) へ伸びる形にする
+    sockGeo.translate(0, -1.6, 0);
+    sockGeo.rotateX(-Math.PI / 2);
+    const sockMat = this.bag.add(new THREE.MeshLambertMaterial({ color: 0xff6a1f, side: THREE.DoubleSide }));
+    for (let d = 10; d < w.len; d += 45) {
+      const mid = this.track.pointAt(w.s + d);
+      const side = d % 90 < 45 ? -1 : 1;
+      const p = this.track.worldAt(w.s + d, side * (mid.halfWidth + 3.5));
+      const g = new THREE.Group();
+      g.position.set(p.x, p.y, p.z);
+      g.add(new THREE.Mesh(poleGeo, poleMat));
+      const sock = new THREE.Mesh(sockGeo, sockMat);
+      sock.position.y = 5.8;
+      // 風の向き (道路の右方向 × 符号) を向く
+      sock.rotation.y = Math.atan2(mid.tx, mid.tz) + (w.force >= 0 ? -Math.PI / 2 : Math.PI / 2);
+      sock.userData.zone = zi;
+      g.add(sock);
+      this.windsocks.push(sock);
+      this.group.add(g);
+    }
+  }
+
   // ------------------------------------------------------------------ 障害物
 
   private buildObstacles(): void {
@@ -263,11 +313,18 @@ export class GimmickView {
       log: 0x6b4a2b,
       pillar: 0x9a948a,
       block: 0x3ddc84,
+      rock: 0x6a5a4a,
+      crate: 0xc98a3c,
+      turnstile: 0xff7a1a,
+      cart: 0x3a8fe8,
+      divider: 0xe8e8e8,
     };
     for (const o of this.system.obstacles) {
       const root = new THREE.Group();
       let lamp: THREE.MeshBasicMaterial | null = null;
       let bar: THREE.Object3D | null = null;
+      let shadow: THREE.Mesh | null = null;
+      let body: THREE.Object3D | null = null;
       const color = colorFor[o.style] ?? 0xffffff;
       const mat = this.bag.add(new THREE.MeshLambertMaterial({ color, emissive: o.style === 'gate' ? 0x220000 : 0x000000 }));
       if (o.style === 'log') {
@@ -314,17 +371,154 @@ export class GimmickView {
           l.position.y = 3;
           root.add(l);
         }
+      } else if (o.style === 'rock' || o.style === 'crate') {
+        // 落下物 (岩・木箱)。落ちる前は道路に赤い影 (予告) を出す
+        const geo = this.bag.add(
+          o.style === 'rock' ? new THREE.DodecahedronGeometry(Math.max(o.halfWidth, o.halfLength), 0) : new THREE.BoxGeometry(o.halfWidth * 2, o.height, o.halfLength * 2),
+        );
+        const m = new THREE.Mesh(geo, mat);
+        m.position.y = o.style === 'rock' ? Math.max(o.halfWidth, o.halfLength) * 0.7 : o.height / 2;
+        const holder = new THREE.Group();
+        holder.add(m);
+        root.add(holder);
+        body = holder;
+        const ringGeo = this.bag.add(new THREE.RingGeometry(Math.max(o.halfWidth, o.halfLength) * 0.6, Math.max(o.halfWidth, o.halfLength) * 1.25, 24));
+        ringGeo.rotateX(-Math.PI / 2);
+        shadow = new THREE.Mesh(ringGeo, this.bag.add(new THREE.MeshBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.7, depthWrite: false })));
+        shadow.position.y = 0.08;
+        root.add(shadow);
+      } else if (o.style === 'cart') {
+        // 手荷物カートの列 (トラクター + カート3台に荷物)
+        const n = 4;
+        const w = (o.halfWidth * 2) / n;
+        const colors = [0xffd23f, 0x3a8fe8, 0x3a8fe8, 0x3a8fe8];
+        const luggage = [0xe23b3b, 0x3ddc84, 0xff8a3d, 0xb98cff];
+        for (let k = 0; k < n; k++) {
+          const cx = -o.halfWidth + (k + 0.5) * w;
+          const cart = new THREE.Mesh(this.bag.add(new THREE.BoxGeometry(w - 0.4, 0.8, o.halfLength * 2)), this.bag.add(new THREE.MeshLambertMaterial({ color: colors[k]! })));
+          cart.position.set(cx, 0.7, 0);
+          root.add(cart);
+          const load = new THREE.Mesh(this.bag.add(new THREE.BoxGeometry(w - 0.9, 0.9, o.halfLength * 1.5)), this.bag.add(new THREE.MeshLambertMaterial({ color: luggage[k]! })));
+          load.position.set(cx, k === 0 ? 1.6 : 1.55, 0);
+          root.add(load);
+        }
+        lamp = this.bag.add(new THREE.MeshBasicMaterial({ color: 0x331100 }));
+        const lampGeo = this.bag.add(new THREE.SphereGeometry(0.6, 10, 8));
+        for (const side of [-1, 1]) {
+          const l = new THREE.Mesh(lampGeo, lamp);
+          l.userData.fixedLateral = side * (o.roadHalfWidth + 1.5);
+          l.position.y = 3;
+          root.add(l);
+        }
+      } else if (o.style === 'float') {
+        // 文化祭のパレードの山車 (台車 + 大きなマスコットの顔 + 旗)
+        const deck = new THREE.Mesh(this.bag.add(new THREE.BoxGeometry(o.halfWidth * 2, 1.2, o.halfLength * 2)), this.bag.add(new THREE.MeshLambertMaterial({ color: 0xff4f79 })));
+        deck.position.y = 0.9;
+        root.add(deck);
+        const skirt = new THREE.Mesh(this.bag.add(new THREE.BoxGeometry(o.halfWidth * 2 + 0.1, 0.5, o.halfLength * 2 + 0.1)), this.bag.add(new THREE.MeshLambertMaterial({ color: 0xffd23f })));
+        skirt.position.y = 1.4;
+        root.add(skirt);
+        const head = new THREE.Mesh(this.bag.add(new THREE.SphereGeometry(1.8, 14, 10)), this.bag.add(new THREE.MeshLambertMaterial({ color: 0xffe8c8 })));
+        head.position.set(0, 3.4, 0);
+        root.add(head);
+        const eyeGeo = this.bag.add(new THREE.SphereGeometry(0.28, 8, 6));
+        const eyeMat = this.bag.add(new THREE.MeshBasicMaterial({ color: 0x111111 }));
+        for (const side of [-1, 1]) {
+          for (const face of [-1, 1]) {
+            const eye = new THREE.Mesh(eyeGeo, eyeMat);
+            eye.position.set(side * 0.6, 3.7, face * 1.65);
+            root.add(eye);
+          }
+        }
+        const flagMat = this.bag.add(new THREE.MeshLambertMaterial({ color: 0x39a8ff, side: THREE.DoubleSide }));
+        for (const side of [-1, 1]) {
+          const pole = new THREE.Mesh(this.bag.add(new THREE.CylinderGeometry(0.08, 0.08, 3.5, 5)), this.bag.add(new THREE.MeshLambertMaterial({ color: 0xffffff })));
+          pole.position.set(side * (o.halfWidth - 0.5), 3.2, 0);
+          const flag = new THREE.Mesh(this.bag.add(new THREE.PlaneGeometry(1.2, 0.8)), flagMat);
+          flag.position.set(side * (o.halfWidth - 0.5) + 0.6, 4.5, 0);
+          root.add(pole, flag);
+        }
+        lamp = this.bag.add(new THREE.MeshBasicMaterial({ color: 0x331100 }));
+        const lampGeo = this.bag.add(new THREE.SphereGeometry(0.6, 10, 8));
+        for (const side of [-1, 1]) {
+          const l = new THREE.Mesh(lampGeo, lamp);
+          l.userData.fixedLateral = side * (o.roadHalfWidth + 1.5);
+          l.position.y = 3;
+          root.add(l);
+        }
+      } else if (o.style === 'reindeer') {
+        // トナカイの群れ (横断する障害物の箱の中に3頭)
+        const fur = this.bag.add(new THREE.MeshLambertMaterial({ color: 0x8a6440 }));
+        const light = this.bag.add(new THREE.MeshLambertMaterial({ color: 0xe8dcc8 }));
+        const antlerMat = this.bag.add(new THREE.MeshLambertMaterial({ color: 0xd8c8a0 }));
+        const bodyGeo = this.bag.add(new THREE.BoxGeometry(1.1, 1, 2));
+        const legGeo = this.bag.add(new THREE.BoxGeometry(0.2, 1.1, 0.2));
+        const headGeo = this.bag.add(new THREE.BoxGeometry(0.6, 0.6, 0.9));
+        const antlerGeo = this.bag.add(new THREE.BoxGeometry(0.9, 0.7, 0.12));
+        const herd = new THREE.Group();
+        const spots: [number, number][] = [[-o.halfWidth * 0.55, -0.8], [0.2, 0.9], [o.halfWidth * 0.55, -0.4]];
+        for (const [lx, lz] of spots) {
+          const deer = new THREE.Group();
+          const body = new THREE.Mesh(bodyGeo, fur);
+          body.position.y = 1.5;
+          deer.add(body);
+          for (const [x, z] of [[-0.35, -0.7], [0.35, -0.7], [-0.35, 0.7], [0.35, 0.7]] as const) {
+            const leg = new THREE.Mesh(legGeo, fur);
+            leg.position.set(x, 0.55, z);
+            deer.add(leg);
+          }
+          const head = new THREE.Mesh(headGeo, light);
+          head.position.set(0, 2.2, 1.2);
+          deer.add(head);
+          const antler = new THREE.Mesh(antlerGeo, antlerMat);
+          antler.position.set(0, 2.8, 1.05);
+          deer.add(antler);
+          deer.position.set(lx, 0, lz);
+          // 道路を横切る向き (ローカル X) を向く
+          deer.rotation.y = Math.PI / 2;
+          herd.add(deer);
+        }
+        root.add(herd);
+        lamp = this.bag.add(new THREE.MeshBasicMaterial({ color: 0x331100 }));
+        const lampGeo = this.bag.add(new THREE.SphereGeometry(0.6, 10, 8));
+        for (const side of [-1, 1]) {
+          const l = new THREE.Mesh(lampGeo, lamp);
+          l.userData.fixedLateral = side * (o.roadHalfWidth + 1.5);
+          l.position.y = 3;
+          root.add(l);
+        }
+      } else if (o.style === 'turnstile') {
+        // 回転ゲート: 中央の柱 + 回る腕
+        const postGeo = this.bag.add(new THREE.CylinderGeometry(0.6, 0.8, o.height + 1, 10));
+        const post = new THREE.Mesh(postGeo, this.bag.add(new THREE.MeshLambertMaterial({ color: 0x3a3d46 })));
+        post.position.y = (o.height + 1) / 2;
+        root.add(post);
+        const armGeo = this.bag.add(new THREE.BoxGeometry(o.halfWidth * 2, 0.8, o.halfLength * 2));
+        const arm = new THREE.Mesh(armGeo, mat);
+        arm.position.y = o.height * 0.6;
+        root.add(arm);
+        const stripeGeo = this.bag.add(new THREE.BoxGeometry(o.halfWidth * 2 + 0.05, 0.3, o.halfLength * 2 + 0.05));
+        const stripe = new THREE.Mesh(stripeGeo, this.bag.add(new THREE.MeshBasicMaterial({ color: 0xffffff })));
+        stripe.position.y = o.height * 0.6;
+        root.add(stripe);
       } else {
         const geo = this.bag.add(new THREE.BoxGeometry(o.halfWidth * 2, o.height, o.halfLength * 2));
         const m = new THREE.Mesh(geo, mat);
         m.position.y = o.height / 2;
         root.add(m);
+        if (o.style === 'divider') {
+          // 中央分離帯の上の反射材
+          const topGeo = this.bag.add(new THREE.BoxGeometry(o.halfWidth * 2 + 0.05, 0.25, o.halfLength * 2 + 0.05));
+          const top = new THREE.Mesh(topGeo, this.bag.add(new THREE.MeshBasicMaterial({ color: 0xffb21f })));
+          top.position.y = o.height - 0.15;
+          root.add(top);
+        }
       }
       root.traverse((c) => {
-        if (c instanceof THREE.Mesh) c.castShadow = true;
+        if (c instanceof THREE.Mesh && c !== shadow) c.castShadow = true;
       });
       this.group.add(root);
-      this.obstacleVisuals.push({ obstacle: o, root, lamp, bar });
+      this.obstacleVisuals.push({ obstacle: o, root, lamp, bar, shadow, body });
     }
   }
 
@@ -367,6 +561,10 @@ export class GimmickView {
       ice: { color: 0xbfe8ff, opacity: 0.55, emissive: 0x1a3a50 },
       neon: { color: 0x1a0a30, opacity: 0.85, emissive: 0x000000 },
       metal: { color: 0x5a5a62, opacity: 1, emissive: 0x100804 },
+      city: { color: 0xb8b4a8, opacity: 1, emissive: 0x151410 },
+      // 宇宙ステーションのチューブは大きな窓 (ガラス) で、外の地球が見える
+      space: { color: 0xbfe0ff, opacity: 0.3, emissive: 0x0a1a30 },
+      school: { color: 0xf2ecd8, opacity: 1, emissive: 0x141410 },
     };
     for (const t of this.system.tunnels) {
       const st = styles[t.style];
@@ -404,6 +602,7 @@ export class GimmickView {
       const mesh = new THREE.Mesh(this.bag.add(gb.build()), mat);
       mesh.renderOrder = st.opacity < 1 ? 3 : 0;
       this.group.add(mesh);
+      if (t.style === 'space' || t.style === 'school') this.buildTunnelFrames(t, idx, segs);
       if (t.style === 'neon') {
         // 光るリングを一定間隔で置く
         const rings = new GeometryBuilder();
@@ -427,10 +626,36 @@ export class GimmickView {
     }
   }
 
+  /**
+   * トンネルの骨組み: 宇宙ステーションは大きな窓の窓枠 (白)、学校の廊下は窓と掲示板 (色つき) を一定間隔で置く
+   */
+  private buildTunnelFrames(t: TunnelZone, idx: number[], segs: number): void {
+    const gb = new GeometryBuilder();
+    const school = t.style === 'school';
+    for (let k = 0; k < idx.length - 1; k += school ? 4 : 5) {
+      const s0 = this.track.sample(idx[k]!);
+      for (let a = 0; a < segs; a++) {
+        const a0 = (Math.PI * a) / segs;
+        const a1 = (Math.PI * (a + 1)) / segs;
+        const r = s0.halfWidth + 1.3;
+        const pt = (ang: number, off: number): [number, number, number] => {
+          const l = -Math.cos(ang) * r;
+          const hh = Math.sin(ang) * (t.height - 0.15);
+          return [s0.x + s0.rx * l + s0.tx * off, s0.y + hh + l * Math.tan(s0.bank), s0.z + s0.rz * l + s0.tz * off];
+        };
+        const color = school ? (a === 1 || a === segs - 2 ? 0x8ac8f0 : a % 3 === 0 ? 0xff8a8a : 0xd8c8a8) : 0xf4f6fa;
+        gb.quad(...pt(a0, -0.35), ...pt(a0, 0.35), ...pt(a1, 0.35), ...pt(a1, -0.35), color);
+      }
+    }
+    const mat = this.bag.add(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    this.group.add(new THREE.Mesh(this.bag.add(gb.build()), mat));
+  }
+
   // ------------------------------------------------------------------ 更新
 
   update(dt: number): void {
     this.time += dt;
+    this.extras.update(dt);
     for (const st of this.scrollTextures) {
       st.tex.offset.y = (st.tex.offset.y - st.speed * dt) % 1;
     }
@@ -443,12 +668,21 @@ export class GimmickView {
         // ゲート: 開くと上へ上がる
         v.bar.position.y = o.height / 2 + (1 - s.closed) * (o.height + 0.8);
       }
+      if (v.body) {
+        v.body.visible = s.shown;
+        v.body.position.y = s.lift * gimmickConfig.drop.height;
+        v.body.rotation.x = s.lift * 4;
+      }
+      if (v.shadow) {
+        const blink = Math.floor(this.time * 8) % 2 === 0;
+        v.shadow.visible = s.warn && (s.lift > 0.5 ? blink : true);
+      }
       if (v.lamp) {
         const blink = Math.floor(this.time * 6) % 2 === 0;
         v.lamp.color.setHex(s.warn && blink ? 0xffe000 : s.active ? 0xff2020 : 0x331100);
       }
-      // 列車の警告ランプは道路脇に固定
-      if (o.style === 'train') {
+      // 列車・トナカイの警告ランプは道路脇に固定
+      if (o.style === 'train' || o.style === 'reindeer' || o.style === 'cart' || o.style === 'float') {
         for (const c of v.root.children) {
           const fl = c.userData.fixedLateral as number | undefined;
           if (fl !== undefined) c.position.x = -(fl - s.lateral);
@@ -460,6 +694,13 @@ export class GimmickView {
       const phase = this.system.windPhase(zone);
       const blink = Math.floor(this.time * 5) % 2 === 0;
       w.mat.opacity = phase === 'blow' ? 0.75 : phase === 'warn' ? (blink ? 0.6 : 0.15) : 0.12;
+    }
+    for (const sock of this.windsocks) {
+      const phase = this.system.windPhase(this.system.winds[sock.userData.zone as number]!);
+      const target = phase === 'blow' ? 1 : phase === 'warn' ? 0.55 : 0.25;
+      // 伸び (長さ) と垂れ下がり
+      sock.scale.z += (target - sock.scale.z) * Math.min(1, dt * 4);
+      sock.rotation.x = (1 - sock.scale.z) * 0.9 + Math.sin(this.time * 9 + sock.id) * 0.04 * sock.scale.z;
     }
     for (const hub of this.fans) {
       const zone = this.system.winds[hub.userData.zone as number]!;

@@ -5,7 +5,9 @@
  *     チェックポイント・NPC ID/難易度/性格/目標速度/状態 など)
  * F6: 3D 表示 (NPC レーシングライン・現在ターゲット・チェックポイント・コライダー・
  *     速度ベクトル・アイテムボックス・弾丸軌道・コースギミック
- *     [ブーストパッド範囲 / 路面タイプ / 変形区間 / 横風 / コンベア / ジャンプ台 / 動く障害物の当たり判定])
+ *     [ブーストパッド範囲 / 路面タイプ / 変形区間 / 横風 / コンベア / ジャンプ台 / 動く障害物の当たり判定]、
+ *     Road Safety Corridor (水色) / 地形が上がり始める線 (緑) / 地形・背景物の侵入点 (赤い柱)、
+ *     夜コースのヘッドライト照射範囲)
  * F4: 情報を表示する車を切替
  *
  * Festival Mode (npm run festival) では無効。
@@ -13,6 +15,7 @@
 import * as THREE from 'three';
 import type { BattleManager } from '../battle/BattleManager';
 import { gimmickConfig, type SurfaceKind } from '../config/gimmicks';
+import { nightVisibilityConfig } from '../config/graphics';
 import { physicsConfig } from '../config/physics';
 import { itemsConfig } from '../config/items';
 import { msToKmh } from '../core/math';
@@ -20,6 +23,7 @@ import type { RaceCar } from '../game/RaceCar';
 import type { RaceWorld } from '../game/RaceWorld';
 import { ResourceBag } from '../render/dispose';
 import { el } from '../ui/dom';
+import { buildCorridorGizmo, buildIntrusionMarkers, buildRaceLineMarkers, gimmicksAt } from './CourseDebugGizmos';
 
 export function isDebugAllowed(): boolean {
   return !__FESTIVAL__;
@@ -34,6 +38,7 @@ export function debugRequestedByUrl(): boolean {
 }
 
 const COLLIDER_SEGMENTS = 14;
+const HEADLIGHT_SEGMENTS = 6;
 
 export class DebugManager {
   overlayVisible = false;
@@ -50,6 +55,8 @@ export class DebugManager {
   private dynamicPositions: Float32Array | null = null;
   private dynamicColors: Float32Array | null = null;
   private overlayTimer = 0;
+  /** 安全帯への侵入 (F6 を初めて押したときに検査。null = 未検査) */
+  private intrusionCount: number | null = null;
   fps = 0;
 
   constructor(scene: THREE.Scene, world: RaceWorld, battle: BattleManager | null, container: HTMLElement, focusCar: RaceCar) {
@@ -142,8 +149,19 @@ export class DebugManager {
     // コースギミック (静的な範囲)
     this.buildGimmickGizmos(g);
 
+    // Road Safety Corridor と 侵入点、スタート/ゴールライン
+    g.add(buildCorridorGizmo(track, this.bag));
+    g.add(buildRaceLineMarkers(track, this.bag));
+    const courseRoot = this.scene.getObjectByName('course');
+    if (courseRoot) {
+      const { group, reports } = buildIntrusionMarkers(track, courseRoot, this.bag);
+      this.intrusionCount = reports.length;
+      for (const r of reports) console.warn(`[debug] road corridor intrusion: ${r.object} x${r.count} at s=${r.worst.s.toFixed(0)} h=${r.worst.height.toFixed(2)}`);
+      g.add(group);
+    }
+
     // 毎フレーム更新する線 (コライダー・速度ベクトル・弾丸軌道・障害物)
-    const maxSegments = this.world.cars.length * (COLLIDER_SEGMENTS * 2 + 3) + 80 + this.world.gimmicks.obstacles.length * 4;
+    const maxSegments = this.world.cars.length * (COLLIDER_SEGMENTS * 2 + 3 + HEADLIGHT_SEGMENTS) + 80 + this.world.gimmicks.obstacles.length * 4;
     this.dynamicPositions = new Float32Array(maxSegments * 6);
     this.dynamicColors = new Float32Array(maxSegments * 6);
     const dgeo = this.bag.add(new THREE.BufferGeometry());
@@ -215,6 +233,27 @@ export class DebugManager {
       // 速度ベクトル (0.5 秒分)
       push(b.x, b.y + 1.5, b.z, b.x + b.vx * 0.5, b.y + 1.5, b.z + b.vz * 0.5, 0.2, 0.6, 1);
     }
+    // 夜コース: 人間の車のヘッドライト照射範囲 (水平方向の扇形)
+    if (this.world.track.def.environment.night) {
+      const h = nightVisibilityConfig.headlights;
+      const half = (h.angleDeg * Math.PI) / 180;
+      for (const car of this.world.cars) {
+        if (!car.isHuman) continue;
+        const b = car.body;
+        const y = b.y + 0.5;
+        let px = b.x;
+        let pz = b.z;
+        for (let i = 0; i <= HEADLIGHT_SEGMENTS - 2; i++) {
+          const a = b.heading - half + (2 * half * i) / (HEADLIGHT_SEGMENTS - 2);
+          const x = b.x + Math.sin(a) * h.distance;
+          const z = b.z + Math.cos(a) * h.distance;
+          push(px, y, pz, x, y, z, 1, 0.95, 0.6);
+          px = x;
+          pz = z;
+        }
+        push(px, y, pz, b.x, y, b.z, 1, 0.95, 0.6);
+      }
+    }
     // 動く障害物の当たり判定 (有効 = 赤、無効 = 灰、予告中 = 黄)
     for (const o of this.world.gimmicks.obstacles) {
       const st = o.state;
@@ -270,7 +309,21 @@ export class DebugManager {
     lines.push(
       `surface ${b.surfaceKind} grip x${surf.grip.toFixed(2)} accel x${surf.accel.toFixed(2)}  transform ${b.transformMode ?? '-'}  padBoost ${b.padBoostTimer.toFixed(1)}  bank ${((b.bank * 180) / Math.PI).toFixed(0)}deg`,
     );
+    const track = this.world.track;
+    const smp = track.samples[Math.floor(track.wrapS(b.trackS) / track.spacing) % track.samples.length]!;
+    lines.push(
+      `course ${track.def.id} (${track.def.raceType}) ★${track.def.difficultyStars}  length ${track.length.toFixed(0)}m  width ${(smp.halfWidth * 2).toFixed(1)}m  edge L:${smp.left} R:${smp.right}  night ${track.def.environment.night}`,
+    );
+    lines.push(`gimmick here: ${gimmicksAt(this.world.gimmicks, b.trackS, b.trackLateral).join(', ') || '-'}   corridor intrusions: ${this.intrusionCount ?? '(F6 で検査)'}`);
+    if (track.def.environment.night) {
+      const h = nightVisibilityConfig.headlights;
+      lines.push(`headlight range ${h.distance}m angle ±${h.angleDeg}deg intensity ${h.intensity} (${c.isHuman ? 'ON' : 'NPC: ランプのみ'})`);
+    }
     lines.push(`track s ${b.trackS.toFixed(1)} lat ${b.trackLateral.toFixed(2)}  CP next ${p.nextCheckpoint} last ${p.lastCheckpoint}`);
+    lines.push(
+      `progress ${(p.completion * 100).toFixed(1)}%  remain ${p.remainingDistance.toFixed(0)}m  ` +
+        (track.closed ? `lap ${p.lap}/${p.timing.laps}` : `section ${p.section}/${p.checkpointCount - 1}  start s=${track.startS.toFixed(0)} goal s=${track.goalS.toFixed(0)}`),
+    );
     lines.push(`lap ${p.lap} passed ${p.passed} key ${p.progressKey.toFixed(3)} pos ${c.position}  lock ${c.lockTimer.toFixed(1)} ghost ${c.ghostTimer.toFixed(1)}`);
     if (c.npc && c.pattern) {
       const d = c.npc.debug;
@@ -316,6 +369,10 @@ export class DebugManager {
       water: 0x2288ff,
       glass: 0x99ffff,
       metal: 0xaaaaaa,
+      sand: 0xe8c070,
+      wet: 0x3366aa,
+      cobble: 0xa09080,
+      magnet: 0x4466ff,
     };
     const c = new THREE.Color();
     const seg = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, hex: number): void => {
@@ -339,6 +396,11 @@ export class DebugManager {
     for (const z of gs.conveyors) zone(z.s, z.len, z.latMin, z.latMax, 0x00ffaa, 0.6);
     for (const pad of gs.pads) zone(pad.s - pad.halfLength, pad.halfLength * 2, pad.lateral - pad.halfWidth, pad.lateral + pad.halfWidth, 0xff2d95, 0.4);
     for (const j of gs.jumps) zone(j.s, j.len, j.latMin, j.latMax, 0xffd23f, 0.8);
+    for (const z of gs.draftZones) zone(z.s, z.len, -6, 6, 0xffaa00, 1.2);
+    for (const z of gs.splashes) zone(z.s, z.len, z.latMin, z.latMax, 0x66ccff, 0.5);
+    for (const z of gs.platforms) zone(z.s, z.len, -z.amplitude - z.halfWidth, z.amplitude + z.halfWidth, 0xff66ff, 0.7);
+    for (const z of gs.drawbridges) zone(z.s, z.len, z.latMin, z.latMax, 0xff3333, 1);
+    for (const t of gs.tunnels) if (t.speedBonus > 0) zone(t.s, t.len, -3, 3, 0x00ffff, 1.8);
     const geo = this.bag.add(new THREE.BufferGeometry());
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));

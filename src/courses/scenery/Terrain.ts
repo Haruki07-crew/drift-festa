@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { GeometryBuilder } from '../../render/GeometryBuilder';
 import type { ResourceBag } from '../../render/dispose';
+import { RoadCorridor } from '../RoadClearance';
 import { createProjection, type Track } from '../Track';
 import type { TrackProximityGrid } from './SceneryUtils';
 
@@ -20,6 +21,13 @@ export interface TerrainOptions {
   baseOffset: number;
   /** 起伏の強さ */
   noiseScale: number;
+  /**
+   * 道から離れた場所の地形の高さ (省略時は groundLevel + baseOffset + 起伏)。
+   * 山の斜面を下るコースなど、遠くの地形にも大きな傾きをつけたい時に使う
+   */
+  baseHeight?: (x: number, z: number) => number;
+  /** 高さと傾きから色を決める (省略時は colorLow/High の縞 + 急斜面は colorRock) */
+  palette?: (y: number, steep: number) => number;
 }
 
 export interface Terrain {
@@ -39,14 +47,16 @@ export function buildTerrain(track: Track, grid: TrackProximityGrid, bag: Resour
     (Math.sin(x * 0.021) * Math.cos(z * 0.017) * 6 + Math.sin(x * 0.053 + z * 0.041) * 2.5) * o.noiseScale;
   const heightFn = (x: number, z: number): number => {
     const hint = grid.nearestSample(x, z);
-    const base = env.groundLevel + o.baseOffset + noise(x, z) * 2;
+    const base = o.baseHeight ? o.baseHeight(x, z) + noise(x, z) : env.groundLevel + o.baseOffset + noise(x, z) * 2;
     if (hint === undefined) return base;
     const p = track.project(x, z, hint, proj);
     const d = Math.abs(p.lateral) - p.halfWidth;
     const edge = p.lateral >= 0 ? p.right : p.left;
     const roadY = p.cy + p.lateral * Math.tan(p.bank);
     let h: number;
-    if (d < 0.5) h = roadY - 1.2;
+    // 道路のない区間 (ジャンプで飛び越える所) の下は深い谷にする (浅い溝に見えないように)
+    if (p.gap && d < 6) h = roadY - 14;
+    else if (d < 0.5) h = roadY - 1.2;
     else if (edge === 'wall') h = roadY + Math.min(o.wallRise, (d - 0.5) * 1.1) + noise(x, z) * 0.6;
     else if (edge === 'fall') h = roadY - 3 - (d - 0.5) * 2.2 + noise(x, z) * 0.4;
     else if (edge === 'grass') h = roadY - 0.3 - Math.max(0, d - track.def.runoffWidth) * 0.5;
@@ -60,10 +70,16 @@ export function buildTerrain(track: Track, grid: TrackProximityGrid, bag: Resour
   const minZ = b.minZ - o.margin;
   const cols = Math.ceil((b.maxX - b.minX + o.margin * 2) / o.cell);
   const rows = Math.ceil((b.maxZ - b.minZ + o.margin * 2) / o.cell);
+  // 安全帯 (Road Safety Corridor) による高さの上限。
+  // 最寄りの1区間だけでなく近くの全区間を見るので、上下に重なる峠道や近接するヘアピンでも
+  // 別の区間の山肌が道路を覆わない。帯の外側は格子1マス分以上低く保ってから勾配つきで上がる。
+  const corridor = new RoadCorridor(track);
   const heights = new Float32Array((cols + 1) * (rows + 1));
   for (let j = 0; j <= rows; j++) {
     for (let i = 0; i <= cols; i++) {
-      heights[j * (cols + 1) + i] = heightFn(minX + i * o.cell, minZ + j * o.cell);
+      const x = minX + i * o.cell;
+      const z = minZ + j * o.cell;
+      heights[j * (cols + 1) + i] = Math.min(heightFn(x, z), corridor.terrainLimit(x, z));
     }
   }
   const gb = new GeometryBuilder();
@@ -73,6 +89,7 @@ export function buildTerrain(track: Track, grid: TrackProximityGrid, bag: Resour
   const tmp = new THREE.Color();
   const colorFor = (y0: number, y1: number, y2: number): THREE.Color => {
     const steep = Math.max(Math.abs(y1 - y0), Math.abs(y2 - y0)) / o.cell;
+    if (o.palette) return tmp.setHex(o.palette((y0 + y1 + y2) / 3, steep));
     tmp.copy(steep > 0.9 ? rock : (Math.floor(y0) & 1) === 0 ? low : high);
     return tmp;
   };

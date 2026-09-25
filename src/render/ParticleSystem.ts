@@ -169,3 +169,16 @@ export const BOOST_STYLE: ParticleStyle = {
   gravity: 0,
   additive: true,
 };
+
+/** 水しぶき (水たまり・波の区間を走った時) */
+export const SPLASH_STYLE: ParticleStyle = {
+  color: 0xdff4ff,
+  startSize: 0.9,
+  endSize: 2.6,
+  startAlpha: 0.55,
+  lifetime: 0.55,
+  rise: 3.5,
+  drag: 2,
+  gravity: 9,
+  additive: false,
+};

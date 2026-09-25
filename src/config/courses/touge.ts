@@ -7,7 +7,9 @@ export const kageTouge: CourseDef = {
   id: 'touge',
   name: 'Kage Touge',
   idPrefix: 'TOUGE',
+  raceType: 'circuit',
   description: '夕暮れの峠道。高低差とヘアピンが続くテクニカルコース。柵のない区間は落下注意！',
+  highlight: '夕暮れの峠の連続ヘアピンと谷越えの景色',
   difficultyStars: 3,
   defaultWidth: 12.5,
   runoffWidth: 0,
@@ -49,6 +51,7 @@ export const kageTouge: CourseDef = {
     { x: -52, z: -88, y: 5 },
     { x: -14, z: -70, y: 2, left: 'wall', right: 'guardrail' },
   ],
+  tips: 'ヘアピンの手前でしっかり減速。柵のない谷側に寄りすぎないように。',
   itemBoxes: [
     { at: 0.06, lateral: [-3.5, 3.5] },
     { at: 0.27, lateral: [-3.5, 0, 3.5] },

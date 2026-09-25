@@ -33,6 +33,8 @@ export function computeIdealOffsets(track: Track, cfg = npcConfig.racingLine): F
     // 前半は2つ隣まで使う曲率最小化、後半は隣接点の中点 (長さ最小化) を少し混ぜる
     for (let parity = 0; parity < 2; parity++) {
       for (let i = parity; i < n; i += 2) {
+        // 開いた道 (Point to Point) の両端は中心線に固定する
+        if (!track.closed && (i < 2 || i > n - 3)) continue;
         const im2 = (i - 2 + n) % n;
         const im1 = (i - 1 + n) % n;
         const ip1 = (i + 1) % n;
@@ -50,6 +52,57 @@ export function computeIdealOffsets(track: Track, cfg = npcConfig.racingLine): F
     }
   }
   return off;
+}
+
+/**
+ * 路面ギミックを考慮した理想ライン (v3)。道幅の一部だけ滑りやすい区間では、
+ * 滑らない横位置へラインを寄せ、前後をなめらかにつなぐ (急な横移動にしない)。
+ * @param gripAt 位置 (s, lateral) の路面グリップ倍率
+ */
+export function avoidLowGrip(
+  track: Track,
+  ideal: Float32Array,
+  gripAt: (s: number, lateral: number) => number,
+  cfg = npcConfig.racingLine,
+): Float32Array {
+  const n = ideal.length;
+  const out = ideal.slice();
+  const target = new Float32Array(n);
+  const pinned = new Uint8Array(n);
+  let any = false;
+  for (let i = 0; i < n; i++) {
+    const smp = track.samples[i]!;
+    target[i] = out[i]!;
+    const lim = Math.max(0, smp.halfWidth - cfg.edgeMargin);
+    // その位置で一番滑らない横位置のグリップ (道幅全体が濡れている所では、それを基準にする)
+    let bestGrip = 0;
+    for (let l = -lim; l <= lim; l += 1) bestGrip = Math.max(bestGrip, gripAt(smp.s, l));
+    const threshold = Math.min(cfg.lowGripThreshold, bestGrip * cfg.lowGripRelative);
+    if (gripAt(smp.s, out[i]!) >= threshold) continue;
+    // 同じ位置の中で滑らない横位置を探す (今のラインに一番近い所)
+    let best: number | null = null;
+    for (let l = -lim; l <= lim; l += 0.5) {
+      const ok = gripAt(smp.s, l - cfg.lowGripMargin) >= threshold && gripAt(smp.s, l + cfg.lowGripMargin) >= threshold;
+      if (ok && (best === null || Math.abs(l - out[i]!) < Math.abs(best - out[i]!))) best = l;
+    }
+    if (best === null) continue;
+    target[i] = best;
+    pinned[i] = 1;
+    any = true;
+  }
+  if (!any) return out;
+  for (let i = 0; i < n; i++) if (pinned[i]) out[i] = target[i]!;
+  // 寄せた区間の前後をなめらかにつなぐ (寄せた点は固定)
+  const idx = (i: number): number => (track.closed ? ((i % n) + n) % n : Math.max(0, Math.min(n - 1, i)));
+  for (let it = 0; it < cfg.lowGripSmoothing; it++) {
+    for (let i = 0; i < n; i++) {
+      if (pinned[i]) continue;
+      const avg = (out[idx(i - 1)]! + out[idx(i + 1)]!) / 2;
+      // 元の理想ラインへ戻ろうとする力と、なめらかさの釣り合い
+      out[i] = avg * 0.85 + ideal[i]! * 0.15;
+    }
+  }
+  return out;
 }
 
 export class RacingLine {
@@ -74,18 +127,19 @@ export class RacingLine {
     // ライン自体の曲率
     const raw = new Float32Array(n);
     const step = 2;
+    const idx = (i: number): number => (track.closed ? ((i % n) + n) % n : Math.max(0, Math.min(n - 1, i)));
     for (let i = 0; i < n; i++) {
-      const a = (i - step + n) % n;
-      const b = (i + step) % n;
+      const a = idx(i - step);
+      const b = idx(i + step);
       const h0 = Math.atan2(this.xs[i]! - this.xs[a]!, this.zs[i]! - this.zs[a]!);
       const h1 = Math.atan2(this.xs[b]! - this.xs[i]!, this.zs[b]! - this.zs[i]!);
       const d0 = Math.hypot(this.xs[i]! - this.xs[a]!, this.zs[i]! - this.zs[a]!);
       const d1 = Math.hypot(this.xs[b]! - this.xs[i]!, this.zs[b]! - this.zs[i]!);
-      raw[i] = wrapAngle(h1 - h0) / Math.max(0.5, (d0 + d1) / 2);
+      raw[i] = a === i || b === i ? 0 : wrapAngle(h1 - h0) / Math.max(0.5, (d0 + d1) / 2);
     }
     for (let i = 0; i < n; i++) {
       let sum = 0;
-      for (let k = -2; k <= 2; k++) sum += raw[(i + k + n) % n]!;
+      for (let k = -2; k <= 2; k++) sum += raw[idx(i + k)]!;
       this.curvature[i] = sum / 5;
     }
   }
@@ -109,10 +163,9 @@ export class RacingLine {
     const track = this.track;
     const ws = track.wrapS(s);
     const i = track.sampleIndexAt(ws);
-    const n = this.offsets.length;
     const f = (ws - track.samples[i]!.s) / track.spacing;
     const a = this.offsets[i]!;
-    const b = this.offsets[(i + 1) % n]!;
+    const b = this.offsets[track.nextIndex(i)]!;
     return a + (b - a) * f;
   }
 
@@ -174,11 +227,12 @@ export function computeSpeedProfile(
     out[i] = Math.max(npcConfig.speedPlan.minTargetSpeed, v);
   }
 
-  // 後ろ向きパス: ブレーキで減速できる速度に制限 (周回を考慮して2周)
+  // 後ろ向きパス: ブレーキで減速できる速度に制限 (周回コースは周回を考慮して2周。開いた道は1回)
   const decel = spec.brake * params.brakingFactor;
-  for (let pass = 0; pass < 2; pass++) {
-    for (let i = n - 1; i >= 0; i--) {
-      const next = out[(i + 1) % n]!;
+  const passes = track.closed ? 2 : 1;
+  for (let pass = 0; pass < passes; pass++) {
+    for (let i = track.closed ? n - 1 : n - 2; i >= 0; i--) {
+      const next = out[track.nextIndex(i)]!;
       const limit = Math.sqrt(next * next + 2 * decel * Math.min(1, gripEff[i]!) * ds);
       if (out[i]! > limit) out[i] = limit;
     }
@@ -191,7 +245,7 @@ export function computeSpeedProfile(
     for (let i = 0; i < n; i++) {
       let m = src[i]!;
       for (let k = 1; k <= marginSamples; k++) {
-        const v = src[(i + k) % n]!;
+        const v = src[track.closed ? (i + k) % n : Math.min(n - 1, i + k)]!;
         if (v < m) m = v;
       }
       out[i] = m;

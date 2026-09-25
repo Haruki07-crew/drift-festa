@@ -2,8 +2,8 @@
  * コースギミックの実行時処理 (描画非依存・テスト対象)。
  *
  * CourseDef.gimmicks の定義を読み込み、種類ごとに再利用できる仕組みで処理する:
- *   SurfaceModifier (路面) / BoostPad / JumpPad / TransformZone / WindZone / ConveyorZone /
- *   MovingObstacle / Seesaw
+ *   SurfaceModifier (路面) / BoostPad (+ 加速ゲート) / JumpPad / TransformZone / WindZone / ConveyorZone /
+ *   MovingObstacle (+ 落下物) / Seesaw / Tunnel (+ トンネル加速) / DraftZone / Splash / Platform / Drawbridge
  * コース専用の if 文は書かない。新しいコースは定義を並べるだけでギミックが動く。
  *
  * NPC 向けの問い合わせ (前方の障害物の予測・ブーストパッドの位置・路面グリップ) も提供する。
@@ -16,7 +16,7 @@ import {
 } from '../config/gimmicks';
 import type { Track } from '../courses/Track';
 import type { VehicleBody } from '../physics/VehicleBody';
-import { Obstacle, type LateralInterval, type ObstacleState } from './Obstacle';
+import { Obstacle, createObstacleState, type LateralInterval, type ObstacleState } from './Obstacle';
 
 /** 周回上の範囲 (s: 開始距離、len: 長さ) */
 export interface SRange {
@@ -32,6 +32,8 @@ export interface SurfaceZone extends SRange {
 
 export interface BoostPad {
   index: number;
+  /** pad = 路面のブーストパッド、gate = くぐる加速ゲート */
+  kind: 'pad' | 'gate';
   s: number;
   lateral: number;
   halfWidth: number;
@@ -49,6 +51,7 @@ export interface TransformZone extends SRange {
 }
 
 export interface WindZone extends SRange {
+  style: 'fan' | 'windsock';
   force: number;
   period: number;
   activeFraction: number;
@@ -70,7 +73,41 @@ export interface SeesawZone extends SRange {
 export interface TunnelZone extends SRange {
   style: Extract<GimmickDef, { type: 'tunnel' }>['style'];
   height: number;
+  /** トンネル加速 (0 = なし) */
+  speedBonus: number;
 }
+
+export interface DraftZone extends SRange {
+  multiplier: number;
+}
+
+export interface SplashZone extends SRange {
+  latMin: number;
+  latMax: number;
+  /** 周期 [s] (0 = 常に水たまり) */
+  period: number;
+  activeFraction: number;
+  phase: number;
+}
+
+export interface PlatformZone extends SRange {
+  halfWidth: number;
+  amplitude: number;
+  period: number;
+  phase: number;
+}
+
+export interface DrawbridgeZone extends SRange {
+  latMin: number;
+  latMax: number;
+  period: number;
+  openFraction: number;
+  phase: number;
+  /** 手前の遮断機 (自動で作る開閉ゲート) */
+  gate: Obstacle;
+}
+
+export type SplashPhase = 'calm' | 'warn' | 'wave';
 
 export type WindPhase = 'calm' | 'warn' | 'blow';
 
@@ -103,10 +140,16 @@ export class GimmickSystem {
   readonly seesaws: SeesawZone[] = [];
   readonly tunnels: TunnelZone[] = [];
   readonly obstacles: Obstacle[] = [];
+  readonly draftZones: DraftZone[] = [];
+  readonly splashes: SplashZone[] = [];
+  readonly platforms: PlatformZone[] = [];
+  readonly drawbridges: DrawbridgeZone[] = [];
   events: GimmickEvents = {};
   /** ギミックの時計 [s] (レース開始前から進む。全車共通なので周期は予測可能) */
   time = 0;
-  private readonly tmpState: ObstacleState = { lateral: 0, angle: 0, active: true, warn: false, closed: 1 };
+  private readonly tmpState: ObstacleState = createObstacleState();
+  /** adviseObstacles の作業用 (毎フレームの配列確保を避ける) */
+  private readonly adviceBlocks: { min: number; max: number; ds: number; arrive: number; tPred: number; obstacle: Obstacle }[] = [];
 
   constructor(track: Track) {
     this.track = track;
@@ -124,6 +167,7 @@ export class GimmickSystem {
         case 'boostPad':
           this.pads.push({
             index: this.pads.length,
+            kind: 'pad',
             s: track.fracToS(g.at),
             lateral: g.lateral,
             halfWidth: (g.width ?? gimmickConfig.boostPad.width) / 2,
@@ -139,7 +183,7 @@ export class GimmickSystem {
           this.transforms.push({ ...range(g.from, g.to), mode: g.mode });
           break;
         case 'wind':
-          this.winds.push({ ...range(g.from, g.to), force: g.force, period: g.period, activeFraction: g.activeFraction, phase: g.phase ?? 0 });
+          this.winds.push({ ...range(g.from, g.to), style: g.style ?? 'fan', force: g.force, period: g.period, activeFraction: g.activeFraction, phase: g.phase ?? 0 });
           break;
         case 'conveyor':
           this.conveyors.push({ ...range(g.from, g.to), speed: g.speed, latMin: g.lateralMin ?? -WIDE, latMax: g.lateralMax ?? WIDE });
@@ -151,8 +195,67 @@ export class GimmickSystem {
           this.seesaws.push({ ...range(g.from, g.to), tilt: g.tilt, period: g.period, phase: g.phase ?? 0 });
           break;
         case 'tunnel':
-          this.tunnels.push({ ...range(g.from, g.to), style: g.style, height: g.height ?? 7 });
+          this.tunnels.push({ ...range(g.from, g.to), style: g.style, height: g.height ?? 7, speedBonus: g.speedBonus ?? 0 });
           break;
+        case 'speedGate': {
+          const cfg = gimmickConfig.speedGate;
+          this.pads.push({
+            index: this.pads.length,
+            kind: 'gate',
+            s: track.fracToS(g.at),
+            lateral: g.lateral,
+            halfWidth: (g.width ?? cfg.width) / 2,
+            halfLength: cfg.length / 2,
+          });
+          break;
+        }
+        case 'draftZone':
+          this.draftZones.push({ ...range(g.from, g.to), multiplier: g.multiplier });
+          break;
+        case 'splash':
+          this.splashes.push({
+            ...range(g.from, g.to),
+            latMin: g.lateralMin ?? -WIDE,
+            latMax: g.lateralMax ?? WIDE,
+            period: g.period ?? 0,
+            activeFraction: g.activeFraction ?? 1,
+            phase: g.phase ?? 0,
+          });
+          break;
+        case 'platform':
+          this.platforms.push({ ...range(g.from, g.to), halfWidth: g.width / 2, amplitude: g.amplitude, period: g.period, phase: g.phase ?? 0 });
+          break;
+        case 'drawbridge': {
+          const cfg = gimmickConfig.drawbridge;
+          const r = range(g.from, g.to);
+          // 橋が上がっている間 (周期の最後の openFraction) の前後で遮断機を閉める
+          const lead = cfg.gateLeadSeconds / g.period;
+          const lag = cfg.gateLagSeconds / g.period;
+          const phase = g.phase ?? 0;
+          const gateS = track.wrapS(r.s - cfg.gateDistance);
+          const gate = new Obstacle(
+            {
+              type: 'obstacle',
+              at: gateS / track.length,
+              motion: {
+                kind: 'gate',
+                lateral: (g.lateralMin + g.lateralMax) / 2,
+                period: g.period,
+                closedFraction: Math.min(0.95, g.openFraction + lead + lag),
+                phase: phase + g.openFraction + lead,
+              },
+              length: 1,
+              width: g.lateralMax - g.lateralMin,
+              height: 1.6,
+              style: 'gate',
+            },
+            this.obstacles.length,
+            track,
+          );
+          this.obstacles.push(gate);
+          this.drawbridges.push({ ...r, latMin: g.lateralMin, latMax: g.lateralMax, period: g.period, openFraction: g.openFraction, phase, gate });
+          break;
+        }
         case 'gap':
           // 道路の有無は Track が管理
           break;
@@ -162,7 +265,8 @@ export class GimmickSystem {
 
   /** s が範囲内か (周回をまたぐ範囲に対応) */
   inRange(r: SRange, s: number): boolean {
-    return this.track.wrapS(s - r.s) < r.len;
+    const d = this.track.forwardDistance(r.s, s);
+    return d >= 0 && d < r.len;
   }
 
   // ------------------------------------------------------------------ 状態の問い合わせ
@@ -196,8 +300,8 @@ export class GimmickSystem {
   /** 動く路面による高さの追加 [m] (シーソー)。両端は 0 で道路とつながる */
   heightOffsetAt(s: number, t = this.time): number {
     for (const z of this.seesaws) {
-      const d = this.track.wrapS(s - z.s);
-      if (d < z.len) {
+      const d = this.track.forwardDistance(z.s, s);
+      if (d >= 0 && d < z.len) {
         const u = d / z.len;
         return z.tilt * this.seesawTilt(z, t) * Math.sin(2 * Math.PI * u);
       }
@@ -205,11 +309,74 @@ export class GimmickSystem {
     return 0;
   }
 
-  /** 車の横位置での路面グリップ倍率 (路面 × 変形)。NPC の速度計画用 */
+  /** 車の横位置での路面グリップ倍率 (路面 × 変形 × 水しぶき)。NPC の速度計画用 (波は来ている時を想定) */
   gripAt(s: number, lateral: number): number {
     const surf = gimmickConfig.surfaces[this.surfaceAt(s, lateral)].grip;
     const tr = this.transformAt(s);
-    return surf * (tr ? gimmickConfig.transform[tr].gripMul * gimmickConfig.transform[tr].yawMul : 1);
+    const splash = this.splashes.some((z) => lateral >= z.latMin && lateral <= z.latMax && this.inRange(z, s)) ? gimmickConfig.splash.grip : 1;
+    return surf * splash * (tr ? gimmickConfig.transform[tr].gripMul * gimmickConfig.transform[tr].yawMul : 1);
+  }
+
+  /** 水しぶき区間の状態 (周期のない水たまりは常に wave) */
+  splashPhase(z: SplashZone, t = this.time): SplashPhase {
+    if (z.period <= 0) return 'wave';
+    const u = (((t / z.period + z.phase) % 1) + 1) % 1;
+    if (u < z.activeFraction) return 'wave';
+    if (u > 1 - gimmickConfig.splash.warnSeconds / z.period) return 'warn';
+    return 'calm';
+  }
+
+  /** 動く足場の中心の横位置 [m] */
+  platformCenter(z: PlatformZone, t = this.time): number {
+    return z.amplitude * Math.sin(2 * Math.PI * (t / z.period + z.phase));
+  }
+
+  /** 跳ね橋の上がり具合 0 (下りている) .. 1 (上がりきっている) */
+  drawbridgeLift(z: DrawbridgeZone, t = this.time): number {
+    const u = (((t / z.period + z.phase) % 1) + 1) % 1;
+    const start = 1 - z.openFraction;
+    if (u < start) return 0;
+    const move = gimmickConfig.drawbridge.moveSeconds / z.period;
+    const inU = u - start;
+    const outU = 1 - u;
+    return Math.min(1, inU / move, outU / move);
+  }
+
+  /** スリップストリーム効果の倍率 (Draft Tunnel など) */
+  draftMultiplierAt(s: number): number {
+    let m = 1;
+    for (const z of this.draftZones) if (this.inRange(z, s)) m *= z.multiplier;
+    return m;
+  }
+
+  /**
+   * 路面がその瞬間だけ無い場所か (上がっている跳ね橋・動く足場の外)。TrackCollision が落下判定に使う。
+   */
+  isDynamicGap(s: number, lateral: number, t = this.time): boolean {
+    for (const z of this.drawbridges) {
+      if (lateral < z.latMin || lateral > z.latMax || !this.inRange(z, s)) continue;
+      if (this.drawbridgeLift(z, t) > 0.05) return true;
+    }
+    for (const z of this.platforms) {
+      if (!this.inRange(z, s)) continue;
+      if (Math.abs(lateral - this.platformCenter(z, t)) > z.halfWidth + gimmickConfig.platform.edgeMargin) return true;
+    }
+    return false;
+  }
+
+  /**
+   * NPC 向け: 前方 (または今いる) 動く足場の、到達時刻の中心 (null = 足場なし)。
+   * @param anticipation 0 = 今の位置、1 = 到達時刻の位置を正確に予測
+   */
+  platformAhead(s: number, speed: number, anticipation: number): { center: number; halfWidth: number; ds: number } | null {
+    const look = gimmickConfig.platform.npcLookahead;
+    for (const z of this.platforms) {
+      const ds = this.track.deltaS(s, z.s);
+      if (ds > look || ds < -z.len) continue;
+      const arrive = Math.max(0, ds) / Math.max(4, speed);
+      return { center: this.platformCenter(z, this.time + arrive * anticipation), halfWidth: z.halfWidth, ds };
+    }
+    return null;
   }
 
   // ------------------------------------------------------------------ 更新
@@ -227,6 +394,7 @@ export class GimmickSystem {
     const s = body.trackS;
     const lat = body.trackLateral;
     body.transformMode = this.transformAt(s);
+    body.resetZoneEffects();
     if (body.airborne) {
       if (body.airMode === 'jump') this.airAssist(body, dt);
       return;
@@ -238,11 +406,14 @@ export class GimmickSystem {
       if (Math.abs(lat - pad.lateral) > pad.halfWidth) continue;
       const ds = this.track.deltaS(pad.s, s);
       if (ds < -pad.halfLength || ds > pad.halfLength) continue;
-      const fresh = body.padBoostTimer < gimmickConfig.boostPad.duration * 0.5;
-      body.padBoostTimer = gimmickConfig.boostPad.duration;
+      const cfg = pad.kind === 'gate' ? gimmickConfig.speedGate : gimmickConfig.boostPad;
+      const fresh = body.padBoostTimer < cfg.duration * 0.5;
+      body.padBoostTimer = cfg.duration;
+      body.boostMaxSpeedMul = cfg.maxSpeedMul;
+      body.boostAccelMul = cfg.accelMul;
       if (fresh) {
         // 前方向へ加速 (最高速度を超えない範囲で)
-        const kick = Math.max(0, Math.min(gimmickConfig.boostPad.kick, body.maxSpeed - body.forwardSpeed));
+        const kick = Math.max(0, Math.min(cfg.kick, body.maxSpeed - body.forwardSpeed));
         body.vx += body.forwardX * kick;
         body.vz += body.forwardZ * kick;
         this.events.onBoostPad?.(body, pad);
@@ -279,6 +450,28 @@ export class GimmickSystem {
       if (lat < c.latMin || lat > c.latMax || !this.inRange(c, s)) continue;
       body.x += tx * c.speed * dt;
       body.z += tz * c.speed * dt;
+    }
+
+    // トンネル加速
+    for (const t of this.tunnels) {
+      if (t.speedBonus <= 0 || !this.inRange(t, s)) continue;
+      body.zoneMaxSpeedMul *= 1 + t.speedBonus;
+      body.zoneAccelMul *= 1 + t.speedBonus * gimmickConfig.tunnelSpeed.accelPerBonus;
+    }
+
+    // 水しぶき (水たまり・波)
+    for (const z of this.splashes) {
+      if (lat < z.latMin || lat > z.latMax || !this.inRange(z, s) || this.splashPhase(z) !== 'wave') continue;
+      body.zoneGripMul *= gimmickConfig.splash.grip;
+      body.zoneDrag += gimmickConfig.splash.drag;
+    }
+
+    // 動く足場: 足場の上の車は足場と一緒に横へ運ばれる
+    for (const z of this.platforms) {
+      if (!this.inRange(z, s)) continue;
+      const v = (this.platformCenter(z, this.time) - this.platformCenter(z, this.time - dt)) / Math.max(1e-6, dt);
+      body.x += -tz * v * dt;
+      body.z += tx * v * dt;
     }
   }
 
@@ -326,10 +519,14 @@ export class GimmickSystem {
       // ジャンプ台の手前 runway m 以内、またはジャンプ台〜切れ目の中 → 助走できる位置まで戻す
       if ((ds >= 0 && ds < runway) || (ds < 0 && ds > -40)) cand = j.s - runway;
     }
+    // 跳ね橋・動く足場の上 (その時々で道路がなくなる場所) には復帰させない
+    const onMoving = (x: number): boolean =>
+      this.drawbridges.some((z) => this.track.forwardDistance(z.s - 10, x) >= 0 && this.track.forwardDistance(z.s - 10, x) < z.len + 20) ||
+      this.platforms.some((z) => this.track.forwardDistance(z.s - 10, x) >= 0 && this.track.forwardDistance(z.s - 10, x) < z.len + 20);
     for (let i = 0; i < 40; i++) {
-      const nearObstacle = this.obstacles.some((o) => Math.abs(this.track.deltaS(o.s, cand)) < o.halfLength + 6);
+      const nearObstacle = this.obstacles.some((o) => Math.abs(this.track.deltaS(o.s, cand)) < o.halfLength + 12);
       const nearJump = this.jumps.some((j) => Math.abs(this.track.deltaS(j.s, cand)) < 12);
-      if (!this.track.isGap(cand) && !this.track.isGap(cand + 8) && !nearObstacle && !nearJump) return this.track.wrapS(cand);
+      if (!this.track.isGap(cand) && !this.track.isGap(cand + 8) && !nearObstacle && !nearJump && !onMoving(cand)) return this.track.wrapS(cand);
       cand -= 4;
     }
     return this.track.wrapS(cand);
@@ -349,12 +546,17 @@ export class GimmickSystem {
     anticipation: number,
     out: ObstacleAdvice,
     preferSide = 0,
+    currentLateral = plannedLateral,
   ): ObstacleAdvice {
     out.lateral = null;
     out.speedCap = Infinity;
     out.obstacle = null;
     const look = gimmickConfig.npc.obstacleLookahead;
+    const cfg = gimmickConfig.npc;
     const margin = gimmickConfig.obstacle.npcClearance + 1;
+    // 1) 前方の障害物が到達時刻に塞いでいる横範囲を集める
+    const blocks = this.adviceBlocks;
+    blocks.length = 0;
     let nearest = Infinity;
     for (const o of this.obstacles) {
       const ds = this.track.deltaS(s, o.s);
@@ -362,22 +564,58 @@ export class GimmickSystem {
       const arrive = Math.max(0, ds) / Math.max(4, speed);
       const tPred = this.time + arrive * anticipation;
       const occ = o.occupancyAt(tPred, margin, this.tmpState);
-      if (!occ || plannedLateral < occ.min || plannedLateral > occ.max) continue;
-      if (ds >= nearest) continue;
-      nearest = ds;
-      out.obstacle = o;
-      const choice = chooseSide(occ, plannedLateral, roadLimit, preferSide);
-      if (choice !== null) {
-        out.lateral = choice;
-        out.speedCap = Infinity;
-      } else {
-        // 抜けられない (ゲートが閉じている等) → 開くタイミングに合わせて減速
-        out.lateral = null;
-        const wait = o.timeUntilClear(tPred);
-        out.speedCap = Math.max(5, Math.max(0, ds - o.halfLength - 4) / Math.max(0.3, arrive + wait));
+      if (!occ) continue;
+      blocks.push({ min: occ.min, max: occ.max, ds, arrive, tPred, obstacle: o });
+      if (plannedLateral >= occ.min && plannedLateral <= occ.max && ds < nearest) nearest = ds;
+    }
+    // 予定の横位置が塞がれていなければ何もしない
+    if (nearest === Infinity) return out;
+    // 2) ほぼ同じ位置に並ぶ障害物 (2枚のゲート・跳ね橋の遮断機と中央分離帯など) をまとめて考え、
+    //    全部を避けられる横位置を探す
+    const relevant = blocks.filter((b) => b.ds <= nearest + cfg.obstacleGroupDistance);
+    // 真横にある障害物 (中央分離帯など) の反対側へは移れない
+    const reachable = (l: number): boolean =>
+      blocks.every((b) => {
+        if (b.ds > b.obstacle.halfLength + 3 || b.ds < -b.obstacle.halfLength - 1) return true;
+        const c = (b.min + b.max) / 2;
+        return Math.sign(currentLateral - c) === Math.sign(l - c);
+      });
+    const free = (l: number): boolean => l >= -roadLimit && l <= roadLimit && relevant.every((b) => l < b.min || l > b.max) && reachable(l);
+    const target = relevant.reduce((a, b) => (b.ds < a.ds && plannedLateral >= b.min && plannedLateral <= b.max ? b : a), relevant.find((b) => plannedLateral >= b.min && plannedLateral <= b.max)!);
+    out.obstacle = target.obstacle;
+    let best: number | null = null;
+    let bestCost = Infinity;
+    for (const b of relevant) {
+      for (const cand of [b.min - 0.05, b.max + 0.05]) {
+        if (!free(cand)) continue;
+        // 一度決めた側を優先 (障害物の間で左右にふらつかない)
+        const sideBonus = preferSide !== 0 && Math.sign(cand - plannedLateral) === preferSide ? -3 : 0;
+        const cost = Math.abs(cand - plannedLateral) + sideBonus;
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = cand;
+        }
       }
     }
+    if (best !== null) {
+      out.lateral = best;
+      return out;
+    }
+    // 3) 抜けられない (ゲートが閉じている等) → 開くタイミングに合わせて減速
+    const wait = target.obstacle.timeUntilClear(target.tPred);
+    out.speedCap = Math.max(5, Math.max(0, target.ds - target.obstacle.halfLength - 4) / Math.max(0.3, target.arrive + wait));
     return out;
+  }
+
+  /** 位置 s から dist [m] 先までに、横位置 lateral を今塞いでいる障害物があるか (復帰位置の選択用) */
+  lateralBlockedAhead(s: number, lateral: number, dist: number): boolean {
+    const margin = gimmickConfig.obstacle.npcClearance;
+    return this.obstacles.some((o) => {
+      const ds = this.track.deltaS(s, o.s);
+      if (ds < -o.halfLength || ds > dist + o.halfLength) return false;
+      const occ = o.occupancyAt(this.time, margin, this.tmpState);
+      return occ !== null && lateral >= occ.min && lateral <= occ.max;
+    });
   }
 
   /** 前方で一番近いブーストパッド (なければ null) */

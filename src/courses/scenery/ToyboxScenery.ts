@@ -87,10 +87,13 @@ export function buildToyboxScenery(track: Track, preset: QualityPreset, bag: Res
       }
     });
   // 高くなった区間の下に巨大な本を積む (本から本へのジャンプ台)
+  // 本の上面が路面より上に出ないよう、本がかかる区間の一番低い路面に合わせる
   for (let i = 0; i < track.samples.length; i += 5) {
     const smp = track.samples[i]!;
     if (smp.y < 1.2 || smp.gap) continue;
-    books.push({ x: smp.x, y: -0.5, z: smp.z, sx: smp.halfWidth * 2 + 3, sy: smp.y + 0.3, sz: 11, rotY: Math.atan2(smp.tx, smp.tz) + Math.PI / 2, color: colors[Math.floor(i / 40) % colors.length]! });
+    let minY = smp.y;
+    for (let k = -3; k <= 3; k++) minY = Math.min(minY, track.sample(i + k).y);
+    books.push({ x: smp.x, y: -0.5, z: smp.z, sx: smp.halfWidth * 2 + 3, sy: minY - 0.4 + 0.5, sz: 10, rotY: Math.atan2(smp.tx, smp.tz), color: colors[Math.floor(i / 40) % colors.length]! });
   }
 
   const bookGeo = new THREE.BoxGeometry(1, 1, 1);

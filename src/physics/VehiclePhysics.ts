@@ -41,8 +41,8 @@ export function stepVehicle(body: VehicleBody, input: VehicleControls, dt: numbe
   // 路面 (氷・雪・泥など) と変形 (水中) の影響
   const surf = gimmickConfig.surfaces[body.surfaceKind];
   const tr = body.transformMode ? gimmickConfig.transform[body.transformMode] : null;
-  const surfaceGrip = surf.grip * (tr ? tr.gripMul : 1);
-  const surfaceDrag = surf.drag + (tr ? tr.drag : 0);
+  const surfaceGrip = surf.grip * (tr ? tr.gripMul : 1) * body.zoneGripMul;
+  const surfaceDrag = surf.drag + (tr ? tr.drag : 0) + body.zoneDrag;
   const yawMul = tr ? tr.yawMul : 1;
   const padBoost = body.padBoostTimer > 0;
   if (padBoost) body.padBoostTimer = Math.max(0, body.padBoostTimer - dt);
@@ -91,8 +91,8 @@ export function stepVehicle(body: VehicleBody, input: VehicleControls, dt: numbe
     } else {
       const power = 1 - Math.pow(speedRatio, cfg.engine.powerCurveExponent);
       const driftAccel = lerp(1, traits.driftAccelMul, drift);
-      const padAccel = padBoost ? gimmickConfig.boostPad.accelMul : 1;
-      accel += spec.accel * body.accelMul * surf.accel * padAccel * power * throttle * driftAccel;
+      const padAccel = padBoost ? body.boostAccelMul : 1;
+      accel += spec.accel * body.accelMul * surf.accel * padAccel * body.zoneAccelMul * power * throttle * driftAccel;
     }
   }
   if (throttle <= 0 && brake <= 0) {

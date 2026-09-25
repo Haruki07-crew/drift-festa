@@ -1,11 +1,17 @@
 /**
  * コースの幾何データ。
  *
- * 制御点 (CourseDef.controlPoints) を閉じた Centripetal Catmull-Rom スプラインで補間し、
+ * 制御点 (CourseDef.controlPoints) を Centripetal Catmull-Rom スプラインで補間し、
  * 等間隔サンプル列 (中心線) を作る。物理・NPC・チェックポイント・順位計算・描画は
  * すべてこの中心線を基準にする。Three.js には依存しない (テスト可能)。
+ *
+ * 周回コース (circuit) は閉じたスプライン、Point to Point (pointToPoint) は開いたスプライン。
+ * 開いたコースでは s は 0..length に制限され (周回しない)、スタートライン (startS) の手前に
+ * グリッド用の助走路、ゴールライン (goalS) の先に減速用の退避路がある。
+ * 周回を前提にした処理は closed / nextIndex / segmentCount を使って両方に対応すること。
  */
 import type { CourseDef, EdgeType } from '../config/courses';
+import { raceTypeConfig } from '../config/game';
 import { gimmickConfig, type GimmickDef } from '../config/gimmicks';
 import { physicsConfig } from '../config/physics';
 import { wrapAngle } from '../core/math';
@@ -128,18 +134,51 @@ export class Track {
   readonly samples: TrackSample[];
   readonly length: number;
   readonly spacing: number;
-  /** チェックポイントの s 位置 (0番 = スタートライン) */
+  /** 周回コースか (false = Point to Point の開いた道) */
+  readonly closed: boolean;
+  /** スタートラインの s (周回コースは 0) */
+  readonly startS: number;
+  /** ゴールラインの s (周回コースは length = スタートラインと同じ位置) */
+  readonly goalS: number;
+  /** 1レース (周回コースは1周) の距離 [m] */
+  readonly raceLength: number;
+  /**
+   * チェックポイントの s 位置 (0番 = スタートライン)。
+   * Point to Point では最後にゴールラインが加わる (要素数 = checkpointCount + 1)。
+   */
   readonly checkpoints: number[];
   readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number; minY: number; maxY: number };
 
-  private constructor(def: CourseDef, samples: TrackSample[], length: number, spacing: number) {
+  private constructor(def: CourseDef, samples: TrackSample[], length: number, spacing: number, closed: boolean) {
     this.def = def;
     this.samples = samples;
     this.length = length;
     this.spacing = spacing;
+    this.closed = closed;
+    if (closed) {
+      this.startS = 0;
+      this.goalS = length;
+    } else {
+      const cfg = raceTypeConfig.pointToPoint;
+      this.startS = def.pointToPoint?.preludeLength ?? cfg.preludeLength;
+      this.goalS = length - (def.pointToPoint?.runoutLength ?? cfg.runoutLength);
+      if (this.goalS - this.startS < cfg.minRaceLength) {
+        throw new Error(`Course ${def.id}: point-to-point road is too short (${length.toFixed(0)} m)`);
+      }
+    }
+    this.raceLength = this.goalS - this.startS;
     this.checkpoints = [];
     for (let k = 0; k < def.checkpointCount; k++) {
-      this.checkpoints.push((k * length) / def.checkpointCount);
+      this.checkpoints.push(this.startS + (k * this.raceLength) / def.checkpointCount);
+    }
+    if (!closed) this.checkpoints.push(this.goalS);
+    // 道路のない区間 (ジャンプで飛び越える) の中のチェックポイントは着地側へずらす
+    // (復帰位置が空中にならないように。順番は保つ)
+    for (let k = 1; k < this.checkpoints.length; k++) {
+      let cp = this.checkpoints[k]!;
+      const limit = this.checkpoints[k + 1] ?? (closed ? length : this.length);
+      while (this.isGap(cp) && cp + spacing < limit) cp += spacing;
+      this.checkpoints[k] = cp;
     }
     let minX = Infinity;
     let maxX = -Infinity;
@@ -161,6 +200,7 @@ export class Track {
   static build(def: CourseDef): Track {
     const cps = def.controlPoints;
     const n = cps.length;
+    const closed = def.raceType !== 'pointToPoint';
     if (n < 4) {
       throw new Error(`Course ${def.id}: at least 4 control points are required`);
     }
@@ -181,37 +221,50 @@ export class Track {
     const widths = cps.map((cp) => cp.width ?? def.defaultWidth);
     const banks = cps.map((cp) => ((cp.bank ?? 0) * Math.PI) / 180);
 
-    // 1) 密なポリラインを作る
+    // 1) 密なポリラインを作る (開いた道は両端の外側に仮想の制御点を置く)
     const dense: DensePoint[] = [];
-    for (let i = 0; i < n; i++) {
-      const p0 = pts[(i - 1 + n) % n]!;
-      const p1 = pts[i]!;
-      const p2 = pts[(i + 1) % n]!;
-      const p3 = pts[(i + 2) % n]!;
+    const segCount = closed ? n : n - 1;
+    const ctrl = (i: number): V3 => {
+      if (closed) return pts[(i + n) % n]!;
+      if (i < 0) return extrapolate(pts[0]!, pts[1]!);
+      if (i >= n) return extrapolate(pts[n - 1]!, pts[n - 2]!);
+      return pts[i]!;
+    };
+    for (let i = 0; i < segCount; i++) {
+      const p0 = ctrl(i - 1);
+      const p1 = ctrl(i);
+      const p2 = ctrl(i + 1);
+      const p3 = ctrl(i + 2);
       for (let k = 0; k < DENSE_STEPS_PER_SEGMENT; k++) {
         const u = k / DENSE_STEPS_PER_SEGMENT;
         const p = centripetalCatmullRom(p0, p1, p2, p3, u);
         dense.push({ x: p.x, y: p.y, z: p.z, seg: i, u });
       }
     }
+    if (!closed) {
+      const last = pts[n - 1]!;
+      dense.push({ x: last.x, y: last.y, z: last.z, seg: n - 2, u: 1 });
+    }
 
-    // 2) 水平距離で累積長を計算
+    // 2) 水平距離で累積長を計算 (周回コースは最後の点から最初の点へ戻る区間を含む)
     const cum: number[] = [0];
-    for (let i = 1; i <= dense.length; i++) {
+    const denseSegs = closed ? dense.length : dense.length - 1;
+    for (let i = 1; i <= denseSegs; i++) {
       const a = dense[i - 1]!;
       const b = dense[i % dense.length]!;
       cum.push(cum[i - 1]! + Math.hypot(b.x - a.x, b.z - a.z));
     }
-    const totalLength = cum[dense.length]!;
+    const totalLength = cum[denseSegs]!;
 
-    // 3) 等間隔に再サンプリング
+    // 3) 等間隔に再サンプリング (開いた道は終点にもサンプルを置く)
     const count = Math.max(16, Math.round(totalLength / def.sampleSpacing));
     const spacing = totalLength / count;
+    const sampleCount = closed ? count : count + 1;
     const samples: TrackSample[] = [];
     let j = 0;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < sampleCount; i++) {
       const s = i * spacing;
-      while (j < dense.length - 1 && cum[j + 1]! < s) j++;
+      while (j < denseSegs - 1 && cum[j + 1]! < s) j++;
       const a = dense[j]!;
       const b = dense[(j + 1) % dense.length]!;
       const segLen = cum[j + 1]! - cum[j]!;
@@ -244,10 +297,14 @@ export class Track {
       });
     }
 
+    // 周回コースは前後が回り込み、開いた道は端で止まる
+    const N = samples.length;
+    const at = (i: number): TrackSample => samples[closed ? ((i % N) + N) % N : Math.max(0, Math.min(N - 1, i))]!;
+
     // 4) 接線・右方向・勾配
-    for (let i = 0; i < count; i++) {
-      const prev = samples[(i - 1 + count) % count]!;
-      const next = samples[(i + 1) % count]!;
+    for (let i = 0; i < N; i++) {
+      const prev = at(i - 1);
+      const next = at(i + 1);
       const cur = samples[i]!;
       let dx = next.x - prev.x;
       let dz = next.z - prev.z;
@@ -258,23 +315,24 @@ export class Track {
       cur.tz = dz;
       cur.rx = -dz;
       cur.rz = dx;
-      cur.slope = (next.y - prev.y) / (2 * spacing);
+      cur.slope = (next.y - prev.y) / (closed ? 2 * spacing : Math.max(spacing, Math.abs(next.s - prev.s)));
     }
 
     // 5) 曲率 (進行方向角の変化率)。少し平滑化する
     const raw: number[] = [];
-    for (let i = 0; i < count; i++) {
-      const prev = samples[(i - 1 + count) % count]!;
-      const next = samples[(i + 1) % count]!;
+    for (let i = 0; i < N; i++) {
+      const prev = at(i - 1);
+      const next = at(i + 1);
       const a0 = Math.atan2(prev.tx, prev.tz);
       const a1 = Math.atan2(next.tx, next.tz);
-      raw.push(wrapAngle(a1 - a0) / (2 * spacing));
+      raw.push(wrapAngle(a1 - a0) / Math.max(spacing, Math.abs(next.s - prev.s) || 2 * spacing));
     }
+    const rawAt = (i: number): number => raw[closed ? ((i % N) + N) % N : Math.max(0, Math.min(N - 1, i))]!;
     const smoothRadius = 2;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < N; i++) {
       let sum = 0;
       for (let k = -smoothRadius; k <= smoothRadius; k++) {
-        sum += raw[(i + k + count) % count]!;
+        sum += rawAt(i + k);
       }
       samples[i]!.curvature = sum / (smoothRadius * 2 + 1);
     }
@@ -282,13 +340,13 @@ export class Track {
     // 6) バンク: 大きさは制御点から、向きは周辺の曲率 (カーブの内側へ傾ける)
     const bankSign: number[] = [];
     let lastSign = 1;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < N; i++) {
       let k = 0;
-      for (let d = -15; d <= 15; d++) k += samples[(i + d + count) % count]!.curvature;
+      for (let d = -15; d <= 15; d++) k += at(i + d).curvature;
       if (Math.abs(k) > 1e-4) lastSign = k > 0 ? 1 : -1;
       bankSign.push(lastSign);
     }
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < N; i++) {
       // 左カーブ (曲率 > 0) では外側 = 右側を高くする → 正のバンク
       samples[i]!.bank = Math.abs(samples[i]!.bank) * bankSign[i]!;
     }
@@ -302,13 +360,35 @@ export class Track {
       } else if (g.type === 'jump' && g.gap !== undefined && g.gap > 0) {
         const start = g.at * totalLength + (g.length ?? gimmickDefaults.jumpLength) + 1;
         for (const smp of samples) {
-          const d = (((smp.s - start) % totalLength) + totalLength) % totalLength;
-          if (d < g.gap) smp.gap = true;
+          const d = closed ? (((smp.s - start) % totalLength) + totalLength) % totalLength : smp.s - start;
+          if (d >= 0 && d < g.gap) smp.gap = true;
         }
       }
     }
 
-    return new Track(def, samples, totalLength, spacing);
+    return new Track(def, samples, totalLength, spacing, closed);
+  }
+
+  /** 中心線の区間数 (周回コース = サンプル数、開いた道 = サンプル数 - 1) */
+  get segmentCount(): number {
+    return this.closed ? this.samples.length : this.samples.length - 1;
+  }
+
+  /** サンプル i の次のサンプル番号 (開いた道の終点では i のまま) */
+  nextIndex(i: number): number {
+    const n = this.samples.length;
+    return this.closed ? (i + 1) % n : Math.min(i + 1, n - 1);
+  }
+
+  /** サンプル i の前のサンプル番号 (開いた道の始点では i のまま) */
+  prevIndex(i: number): number {
+    const n = this.samples.length;
+    return this.closed ? (i - 1 + n) % n : Math.max(i - 1, 0);
+  }
+
+  /** サンプル i から次のサンプルまでの区間が存在するか (開いた道の終点の後ろは存在しない) */
+  hasSegment(i: number): boolean {
+    return this.closed || i < this.samples.length - 1;
   }
 
   /** このコースのギミック定義 */
@@ -326,14 +406,26 @@ export class Track {
     return this.wrapS(s) / this.length;
   }
 
-  /** s を 0..length に正規化 */
+  /** s を 0..length に正規化 (開いた道は両端で止める) */
   wrapS(s: number): number {
     const L = this.length;
+    if (!this.closed) return s < 0 ? 0 : s > L ? L : s;
     return ((s % L) + L) % L;
   }
 
-  /** a から b への最短の符号付き距離 (周回を考慮) */
+  /**
+   * from から進行方向に進んで to に着くまでの距離。周回コースは 0..length、
+   * 開いた道は単純な差 (to が後ろなら負)。範囲判定 (from から len 以内か) に使う。
+   */
+  forwardDistance(from: number, to: number): number {
+    if (!this.closed) return to - from;
+    const L = this.length;
+    return (((to - from) % L) + L) % L;
+  }
+
+  /** a から b への最短の符号付き距離 (周回を考慮。開いた道は単純な差) */
   deltaS(from: number, to: number): number {
+    if (!this.closed) return to - from;
     const L = this.length;
     let d = (to - from) % L;
     if (d > L / 2) d -= L;
@@ -343,11 +435,13 @@ export class Track {
 
   sampleIndexAt(s: number): number {
     const idx = Math.floor(this.wrapS(s) / this.spacing);
-    return Math.min(idx, this.samples.length - 1);
+    // 開いた道は「区間の開始サンプル」を返す (終点のサンプルからは区間が始まらない)
+    return Math.min(idx, this.segmentCount - 1);
   }
 
   sample(index: number): TrackSample {
     const n = this.samples.length;
+    if (!this.closed) return this.samples[index < 0 ? 0 : index >= n ? n - 1 : index]!;
     return this.samples[((index % n) + n) % n]!;
   }
 
@@ -401,7 +495,9 @@ export class Track {
     let bestT = 0;
     let bestD2 = Infinity;
 
+    const segs = this.segmentCount;
     const test = (i: number): void => {
+      if (i >= segs) return;
       const a = this.samples[i]!;
       const b = this.samples[(i + 1) % n]!;
       const abx = b.x - a.x;
@@ -421,18 +517,26 @@ export class Track {
 
     let needGlobal = hint === undefined;
     if (hint !== undefined) {
-      for (let k = -LOCAL_SEARCH_WINDOW; k <= LOCAL_SEARCH_WINDOW; k++) {
-        test((((hint + k) % n) + n) % n);
+      if (this.closed) {
+        for (let k = -LOCAL_SEARCH_WINDOW; k <= LOCAL_SEARCH_WINDOW; k++) {
+          test((((hint + k) % n) + n) % n);
+        }
+      } else {
+        const lo = Math.max(0, hint - LOCAL_SEARCH_WINDOW);
+        const hi = Math.min(segs - 1, hint + LOCAL_SEARCH_WINDOW);
+        for (let i = lo; i <= hi; i++) test(i);
       }
       // 探索窓の端が最良 = 窓の外にもっと近い点がある可能性 → 全体探索
-      const offset = ((bestIndex - hint + n + n / 2) % n) - n / 2;
-      if (Math.abs(offset) >= LOCAL_SEARCH_WINDOW - 1) {
+      // (開いた道の両端は窓の端でも外側に区間がないので全体探索しない)
+      const offset = this.closed ? ((bestIndex - hint + n + n / 2) % n) - n / 2 : bestIndex - hint;
+      const atRoadEnd = !this.closed && (bestIndex === 0 || bestIndex === segs - 1);
+      if (Math.abs(offset) >= LOCAL_SEARCH_WINDOW - 1 && !atRoadEnd) {
         needGlobal = true;
       }
     }
     if (needGlobal) {
       bestD2 = Infinity;
-      for (let i = 0; i < n; i++) test(i);
+      for (let i = 0; i < segs; i++) test(i);
     }
 
     const a = this.samples[bestIndex]!;
@@ -480,6 +584,11 @@ export class Track {
     }
     return out;
   }
+}
+
+/** 開いた道の端の外側に置く仮想の制御点 (a を中心に b と反対側) */
+function extrapolate(a: V3, b: V3): V3 {
+  return { x: 2 * a.x - b.x, y: 2 * a.y - b.y, z: 2 * a.z - b.z };
 }
 
 function smooth(u: number): number {

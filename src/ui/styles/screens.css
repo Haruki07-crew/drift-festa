@@ -313,6 +313,8 @@ button {
 .car-detail,
 .course-detail {
   width: 340px;
+  max-height: 78vh;
+  overflow-y: auto;
   padding: 20px 22px;
   background: var(--c-panel);
   border: var(--border-w) solid var(--c-panel-border);
@@ -596,14 +598,140 @@ kbd {
 
 
 .course-menu .menu-list.grid {
-  grid-template-columns: repeat(2, minmax(200px, 250px));
-  max-height: 72vh;
+  grid-template-columns: repeat(3, minmax(170px, 215px));
+  max-height: 74vh;
+  overflow-y: auto;
 }
 
 .course-menu .menu-item {
-  padding: 9px 18px;
+  padding: 9px 14px;
 }
 
 .course-menu .menu-label {
-  font-size: 19px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+/* コースのカード: 距離・目安タイム・特徴アイコン */
+.course-card-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.course-card-meta {
+  font-size: 12px;
+  color: var(--c-text-dim);
+}
+
+.course-card-icons {
+  font-size: 16px;
+  letter-spacing: 2px;
+  min-height: 1.2em;
+}
+
+.course-card.stars-1 .menu-sub,
+.course-card.stars-2 .menu-sub {
+  color: #3ddc84;
+}
+
+.course-card.stars-4 .menu-sub {
+  color: #ff9a3d;
+}
+
+.course-card.stars-5 .menu-sub {
+  color: #ff4f79;
+}
+
+/* コースのタイプ選択 (大きなカード2枚) */
+.course-type-menu .menu-list.grid {
+  grid-template-columns: repeat(2, minmax(240px, 360px));
+}
+
+.course-type-menu .menu-item {
+  min-height: 170px;
+  padding: 22px 24px;
+}
+
+.course-type-menu .menu-label {
+  font-size: 26px;
+}
+
+.course-type-desc {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--c-text);
+}
+
+.course-type-count {
+  margin-top: 8px;
+  font-weight: bold;
+  color: var(--c-accent);
+}
+
+.course-type.pointToPoint .menu-label {
+  color: #ffb23f;
+}
+
+.course-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+
+.course-type-badge {
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #111;
+  background: var(--c-accent-2);
+}
+
+.course-type-badge.pointToPoint {
+  background: #ffb23f;
+}
+
+.course-detail-head .course-detail-stars {
+  margin: 0;
+}
+
+.course-detail-highlight {
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 210, 63, 0.14);
+  color: var(--c-text);
+  font-size: 14px;
+  font-weight: bold;
+  line-height: 1.45;
+}
+
+.course-detail-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--c-text-dim);
+}
+
+.course-detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.course-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--c-text);
 }

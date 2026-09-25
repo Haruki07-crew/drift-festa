@@ -2,6 +2,7 @@
  * レース中の HUD (プレイヤーごとに1つ。2人プレイでは左右に独立して表示)。
  *
  * 表示: 現在順位 / 全台数、ラップ / 全ラップ、速度、前の車との差、トップとの差、ミニマップ、
+ *       Point to Point は周回の代わりに「POINT TO POINT / START → GOAL / 進行度 % / 残り距離 / 区間」、
  *       カウントダウン、各種メッセージ (FINAL LAP・逆走・復帰中・GOAL)
  * BATTLE DUEL: タイヤHP、インベントリ (3枠)、弾数、ブースト残り、照準、被弾フラッシュ
  */
@@ -40,10 +41,14 @@ export class Hud {
   private readonly posSuffix: HTMLElement;
   private readonly posTotal: HTMLElement;
   private readonly lap: HTMLElement;
+  /** Point to Point 用 (周回コースでは null) */
+  private readonly p2p: { fill: HTMLElement; percent: HTMLElement; remain: HTMLElement; section: HTMLElement; names: readonly string[] } | null;
   private readonly lapTime: HTMLElement;
   private readonly bestLap: HTMLElement;
   private readonly speed: HTMLElement;
   private readonly speedBar: HTMLElement;
+  /** スリップストリーム中の表示 */
+  private readonly draft: HTMLElement;
   private readonly gapAhead: HTMLElement;
   private readonly gapLeader: HTMLElement;
   private readonly center: HTMLElement;
@@ -80,7 +85,27 @@ export class Hud {
     this.lap = el('div', 'hud-lap', 'LAP 1/3');
     this.lapTime = el('div', 'hud-laptime', '0:00.000');
     this.bestLap = el('div', 'hud-bestlap', 'BEST --:--.---');
-    tl.append(posRow, this.lap, this.lapTime, this.bestLap);
+    if (track.closed) {
+      this.p2p = null;
+      tl.append(posRow, this.lap, this.lapTime, this.bestLap);
+    } else {
+      // Point to Point: 周回の代わりに START → GOAL の進み具合
+      const box = el('div', 'hud-p2p');
+      const head = el('div', 'hud-p2p-type', 'POINT TO POINT');
+      const route = el('div', 'hud-p2p-route');
+      route.append(el('span', 'hud-p2p-start', 'START'));
+      const bar = el('div', 'hud-p2p-bar');
+      const fill = el('div', 'hud-p2p-fill');
+      bar.append(fill);
+      route.append(bar, el('span', 'hud-p2p-goal', 'GOAL'));
+      const percent = el('div', 'hud-p2p-percent', '0%');
+      const remain = el('div', 'hud-p2p-remain', '');
+      const section = el('div', 'hud-p2p-section', '');
+      box.append(head, route, percent, remain, section);
+      const names = track.def.pointToPoint?.sectionNames ?? [];
+      this.p2p = { fill, percent, remain, section, names };
+      tl.append(posRow, box, this.lapTime);
+    }
     if (opts.split) {
       tl.prepend(el('div', 'hud-player-tag', `P${opts.playerIndex + 1}`));
     }
@@ -104,7 +129,8 @@ export class Hud {
     const bar = el('div', 'hud-speedbar');
     this.speedBar = el('div', 'hud-speedbar-fill');
     bar.append(this.speedBar);
-    br.append(this.speed, unit, bar);
+    this.draft = el('div', 'hud-draft', 'SLIPSTREAM');
+    br.append(this.draft, this.speed, unit, bar);
 
     // 右上: ミニマップ
     this.minimap = new Minimap(track, opts.split ? 150 : 200);
@@ -180,14 +206,26 @@ export class Hud {
     setText(this.pos, String(n));
     setText(this.posSuffix, ORDINAL[n] ?? 'th');
     setText(this.posTotal, `/ ${f.totalCars}`);
-    setText(this.lap, `LAP ${p.displayLap}/${f.laps}`);
-    toggleClass(this.lap, 'final', p.lap === f.laps && !p.finished);
+    if (this.p2p) {
+      const pct = Math.floor(p.completion * 100);
+      setText(this.p2p.percent, `${pct}%`);
+      setStyle(this.p2p.fill, 'width', `${(p.completion * 100).toFixed(1)}%`);
+      setText(this.p2p.remain, p.finished ? 'GOAL!' : `ゴールまで ${formatDistance(p.remainingDistance)}`);
+      const total = p.checkpointCount - 1;
+      const sec = Math.max(1, p.section);
+      const name = this.p2p.names[sec - 1];
+      setText(this.p2p.section, p.finished ? '' : `SECTION ${sec}/${total}${name ? ` ${name}` : ''}`);
+    } else {
+      setText(this.lap, `LAP ${p.displayLap}/${f.laps}`);
+      toggleClass(this.lap, 'final', p.lap === f.laps && !p.finished);
+    }
     setText(this.lapTime, formatRaceTime(p.finished ? (p.lapTimes[p.lapTimes.length - 1] ?? 0) : p.currentLapTime(f.raceTime)));
     setText(this.bestLap, `BEST ${formatRaceTime(p.bestLap)}`);
     const kmh = Math.round(msToKmh(Math.abs(car.body.forwardSpeed)));
     setText(this.speed, String(kmh));
     const ratio = Math.min(1, Math.abs(car.body.forwardSpeed) / Math.max(1, car.body.maxSpeed / car.body.maxSpeedMul));
     setStyle(this.speedBar, 'width', `${(ratio * 100).toFixed(1)}%`);
+    toggleClass(this.draft, 'on', car.body.draft > 0.45);
     setText(this.gapAhead, n === 1 ? 'TOP!' : formatGap(f.gapAhead));
     setText(this.gapLeader, n === 1 ? '--' : formatGap(f.gapLeader));
 
@@ -248,4 +286,10 @@ export class Hud {
       toggleClass(this.crosshair, 'noammo', ammoTotal <= 0);
     }
   }
+}
+
+/** 残り距離の表示 (1km 以上は km) */
+export function formatDistance(m: number): string {
+  if (m >= 1000) return `${(m / 1000).toFixed(2)} km`;
+  return `${Math.max(0, Math.round(m / 10) * 10)} m`;
 }

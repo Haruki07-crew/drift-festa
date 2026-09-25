@@ -15,10 +15,26 @@
  *   conveyor   : コンベア (路面ごと車を運ぶ。速い物はブーストコンベア)
  *   obstacle   : 障害物 (静止 / 横移動 / 開閉ゲート / 回転)。予測可能な周期で動く
  *   seesaw     : シーソー道路 (一定周期で傾きが変わる)
- *   tunnel     : トンネルの見た目 (物理的な影響なし)
+ *   tunnel     : トンネルの見た目。speedBonus でトンネル加速 (Tunnel Speed)
+ *
+ * v3 で追加:
+ *   speedGate  : くぐると加速するゲート (ブーストパッドより強く長い。NPC も狙う)
+ *   draftZone  : スリップストリーム (前の車の真後ろで加速) が強くなる区間 (Draft Tunnel 等)
+ *                ※ スリップストリーム自体は全コース共通の仕組み (slipstream 設定)
+ *   splash     : 水しぶき区間 (水たまり・打ち寄せる波)。period 指定で波のように周期的に来る
+ *   platform   : 横へ動く足場 (Moving Platform)。足場の外は落下
+ *   drawbridge : 周期的に上がる跳ね橋 (Moving Bridge)。上がる前に手前の遮断機が閉まる
+ *   obstacle の motion 'drop' : 落下物 (Falling Object)。落ちる場所に予告の影が出る
+ *   obstacle の motion 'spin' + style 'turnstile' : 回転ゲート (Rotating Gate)
+ *   surface の sand / wet / cobble / magnet : 砂・濡れた路面・石畳・磁力道路 (Magnetic Road)
+ *
+ * 組み合わせで作るもの:
+ *   Shortcut Gate / Dynamic Route Split : 中央分離帯 (obstacle static) で道を2車線に分け、
+ *     片方にだけ開閉ゲート・跳ね橋・別の路面を置く。NPC は到達時刻の状態から車線を選ぶ
+ *   Bank Assist : 制御点の bank (バンク角) + bank.gripBonus
  */
 
-export type SurfaceKind = 'road' | 'snow' | 'ice' | 'dirt' | 'mud' | 'water' | 'glass' | 'metal';
+export type SurfaceKind = 'road' | 'snow' | 'ice' | 'dirt' | 'mud' | 'water' | 'glass' | 'metal' | 'sand' | 'wet' | 'cobble' | 'magnet';
 
 export interface SurfaceProps {
   label: string;
@@ -48,11 +64,30 @@ export type ObstacleMotion =
   /** その場で回転する棒 (回転する積み木など) */
   | { kind: 'spin'; lateral: number; period: number; phase?: number }
   /** 横切る列車: 片側から反対側へ一定速度で横断し、待機して戻る (予告あり) */
-  | { kind: 'cross'; amplitude: number; period: number; crossFraction: number; phase?: number };
+  | { kind: 'cross'; amplitude: number; period: number; crossFraction: number; phase?: number }
+  /**
+   * 落下物: 周期ごとに laterals の位置へ順番に落ちてくる。落ちる前に予告 (影) が出て、
+   * 落ちた後しばらく道路に残ってから消える (drop 設定)
+   */
+  | { kind: 'drop'; laterals: number[]; period: number; phase?: number };
 
-export type ObstacleStyle = 'gate' | 'block' | 'train' | 'spinner' | 'log' | 'pillar' | 'piston';
+export type ObstacleStyle =
+  | 'gate'
+  | 'block'
+  | 'train'
+  | 'spinner'
+  | 'log'
+  | 'pillar'
+  | 'piston'
+  | 'rock'
+  | 'crate'
+  | 'turnstile'
+  | 'cart'
+  | 'divider'
+  | 'reindeer'
+  | 'float';
 
-export type TunnelStyle = 'glass' | 'rock' | 'ice' | 'neon' | 'metal';
+export type TunnelStyle = 'glass' | 'rock' | 'ice' | 'neon' | 'metal' | 'city' | 'space' | 'school';
 
 export type TransformMode = 'underwater';
 
@@ -72,11 +107,72 @@ export type GimmickDef =
     }
   | { type: 'gap'; from: number; to: number }
   | { type: 'transform'; from: number; to: number; mode: TransformMode }
-  | { type: 'wind'; from: number; to: number; force: number; period: number; activeFraction: number; phase?: number }
+  | {
+      type: 'wind';
+      from: number;
+      to: number;
+      force: number;
+      period: number;
+      activeFraction: number;
+      phase?: number;
+      /** 見た目: fan = 巨大扇風機 (既定)、windsock = 吹き流し (屋外の自然の風) */
+      style?: 'fan' | 'windsock';
+    }
   | { type: 'conveyor'; from: number; to: number; speed: number; lateralMin?: number; lateralMax?: number }
   | { type: 'obstacle'; at: number; motion: ObstacleMotion; length: number; width: number; height: number; style: ObstacleStyle }
   | { type: 'seesaw'; from: number; to: number; tilt: number; period: number; phase?: number }
-  | { type: 'tunnel'; from: number; to: number; style: TunnelStyle; height?: number };
+  | {
+      type: 'tunnel';
+      from: number;
+      to: number;
+      style: TunnelStyle;
+      height?: number;
+      /** トンネル加速 (Tunnel Speed): 中での最高速度の上乗せ (0.05 = +5%) */
+      speedBonus?: number;
+    }
+  | { type: 'speedGate'; at: number; lateral: number; width?: number }
+  | {
+      type: 'draftZone';
+      from: number;
+      to: number;
+      /** スリップストリーム効果の倍率 (1.8 = 1.8倍) */
+      multiplier: number;
+    }
+  | {
+      type: 'splash';
+      from: number;
+      to: number;
+      lateralMin?: number;
+      lateralMax?: number;
+      /** 周期 [s] (省略 = 常に水たまり)。指定すると波のように周期的に来る */
+      period?: number;
+      /** 波が道路にかかっている割合 0..1 */
+      activeFraction?: number;
+      phase?: number;
+    }
+  | {
+      type: 'platform';
+      from: number;
+      to: number;
+      /** 足場の幅 [m] */
+      width: number;
+      /** 横移動の振幅 [m] (中心 = コース中心) */
+      amplitude: number;
+      period: number;
+      phase?: number;
+    }
+  | {
+      type: 'drawbridge';
+      from: number;
+      to: number;
+      /** 跳ね橋がかかっている車線 (横位置の範囲) [m] */
+      lateralMin: number;
+      lateralMax: number;
+      period: number;
+      /** 橋が上がっている (通れない) 割合 0..1 */
+      openFraction: number;
+      phase?: number;
+    };
 
 export type GimmickType = GimmickDef['type'];
 
@@ -90,6 +186,10 @@ export const gimmickConfig = {
     water: { label: '浅い水', grip: 0.82, accel: 0.8, drag: 3, maxSpeedMul: 0.82, color: 0x3a8fb8, shine: 0.7 },
     glass: { label: '透明道路', grip: 1, accel: 1, drag: 0, maxSpeedMul: 1, color: 0x9fe8ff, shine: 0.8, transparent: true },
     metal: { label: '鉄板', grip: 0.92, accel: 1, drag: 0, maxSpeedMul: 1, color: 0x7a7f88, shine: 0.5 },
+    sand: { label: '砂', grip: 0.8, accel: 0.84, drag: 1.6, maxSpeedMul: 0.9, color: 0xd9b36a, shine: 0 },
+    wet: { label: '濡れた路面', grip: 0.74, accel: 0.93, drag: 0.2, maxSpeedMul: 1, color: 0x2c3340, shine: 0.75 },
+    cobble: { label: '石畳', grip: 0.9, accel: 0.95, drag: 0.6, maxSpeedMul: 0.96, color: 0x8a8378, shine: 0.05 },
+    magnet: { label: '磁力道路', grip: 1.45, accel: 1, drag: 0, maxSpeedMul: 1, color: 0x2a3a8a, shine: 0.6 },
   } satisfies Record<SurfaceKind, SurfaceProps>,
 
   boostPad: {
@@ -138,6 +238,90 @@ export const gimmickConfig = {
     warnSeconds: 1.2,
   },
 
+  /** 加速ゲート (くぐると加速) */
+  speedGate: {
+    duration: 1.8,
+    maxSpeedMul: 1.32,
+    kick: 8,
+    accelMul: 1.7,
+    /** 既定の幅 [m] (くぐれる横幅) と判定の前後長さ [m] */
+    width: 7,
+    length: 4,
+    /** ゲートの高さ [m] (見た目) */
+    height: 6.5,
+  },
+
+  /**
+   * スリップストリーム (全コース共通)。前の車の真後ろにつくと空気抵抗が減って速くなる。
+   * 車両性能の底上げではなく、誰でも (人間も NPC も) 同じ条件で得られる物理効果。
+   */
+  slipstream: {
+    /** 効果が出る前の車との最大距離 [m] */
+    range: 30,
+    /** 真後ろとみなす横ずれ [m] */
+    lateralWidth: 2.4,
+    /** これ以下の速度では効果なし [m/s] */
+    minSpeed: 18,
+    /** 最大効果時の最高速度の上乗せ */
+    maxSpeedBonus: 0.06,
+    /** 最大効果時の加速の上乗せ */
+    accelBonus: 0.3,
+    /** 効果が最大になるまでの時間 [s] (近づいてすぐには効かない) */
+    buildUpSeconds: 0.8,
+    /** 離れてから効果が消えるまでの時間 [s] */
+    fadeSeconds: 0.5,
+  },
+
+  /** トンネル加速 (tunnel の speedBonus) の加速の上乗せ (speedBonus 1 あたり) */
+  tunnelSpeed: {
+    accelPerBonus: 4,
+  },
+
+  /** 水しぶき (水たまり・波) */
+  splash: {
+    grip: 0.8,
+    /** 追加の減速 [m/s^2] */
+    drag: 2.4,
+    /** 波が来る前の予告時間 [s] */
+    warnSeconds: 1.2,
+  },
+
+  /** 動く足場 */
+  platform: {
+    /** 足場の端から落ちるまでの余裕 [m] */
+    edgeMargin: 0.4,
+    /** NPC が狙う足場中央からの余裕 [m] (足場の半幅からこれを引いた範囲を狙う) */
+    npcMargin: 1.6,
+    /** NPC が足場を見始める距離 [m] */
+    npcLookahead: 80,
+  },
+
+  /** 跳ね橋 */
+  drawbridge: {
+    /** 橋が上がる何秒前に遮断機を閉めるか (遮断機の直前を遅い車 (20m/s) が通っても渡り切れる時間) */
+    gateLeadSeconds: 4,
+    /** 橋が下りてから遮断機を開けるまで [s] */
+    gateLagSeconds: 0.6,
+    /** 橋が上がる/下りるアニメーションの時間 [s] */
+    moveSeconds: 1.2,
+    /** 遮断機を橋の手前何 m に置くか */
+    gateDistance: 14,
+    /** 上がった橋の最大角度 [deg] */
+    maxAngleDeg: 62,
+  },
+
+  /** 落下物 */
+  drop: {
+    /** 落ちる前の予告 (影) の時間 [s] */
+    warnSeconds: 1.6,
+    /** 落下にかかる時間 [s] */
+    fallSeconds: 0.45,
+    /** 道路に残る時間 [s] */
+    restSeconds: 2.2,
+    /** 落ちてくる高さ [m] */
+    height: 26,
+  },
+
   obstacle: {
     /** 障害物にぶつかった時の反発係数 */
     restitution: 0.35,
@@ -171,6 +355,11 @@ export const gimmickConfig = {
     seekMaxOffset: 5,
     /** 障害物を認識する距離 [m] */
     obstacleLookahead: 70,
+    /**
+     * 一番近い障害物からこの距離 [m] 以内の障害物はまとめて避け方を考える
+     * (同じ位置の2枚のゲート・遮断機と中央分離帯)。広すぎると先の障害物に過敏になる
+     */
+    obstacleGroupDistance: 12,
   },
 };
 

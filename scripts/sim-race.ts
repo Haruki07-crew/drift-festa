@@ -1,6 +1,7 @@
 /**
  * ヘッドレス・レースシミュレーション (描画なし)。
- * NPC が全コース・全難易度で3周を完走できるか、スタック・落下・所要時間を確認する。
+ * NPC が全コース・全難易度で完走できるか (周回コースは3周、Point to Point はゴールまで)、
+ * スタック・落下・所要時間を確認する。Point to Point はゴール後に退避路の中で止まれるかも確認する。
  *
  *   npm run sim                       全コース × 全難易度
  *   npm run sim -- touge strong 3     コース・難易度・試行回数を指定
@@ -68,6 +69,19 @@ for (const def of courses) {
         }
       }
       const ms = performance.now() - start;
+      // Point to Point: ゴール後に退避路で止まれるか (止めの壁に強く当たらないか)
+      let stopNote = '';
+      if (!track.closed && cars.every((c) => c.progress.finished)) {
+        let endHits = 0;
+        world.events.onWallImpact = (c, speed) => {
+          if (c.body.trackS > track.goalS && speed > 4) endHits++;
+        };
+        const until = world.time + 10;
+        while (world.time < until) world.step(dt);
+        const stopped = cars.filter((c) => c.body.speed < 1 && c.body.trackS > track.goalS).length;
+        stopNote = ` stoppedAfterGoal=${stopped}/${cars.length} endWallHits=${endHits}`;
+        if (stopped < cars.length || endHits > 0) failures++;
+      }
       const finished = cars.filter((c) => c.progress.finished).length;
       const times = cars.map((c) => c.progress.finishTime ?? Infinity).sort((a, b) => a - b);
       const best = Math.min(...cars.map((c) => c.progress.bestLap ?? Infinity));
@@ -76,7 +90,7 @@ for (const def of courses) {
       console.log(
         `${def.id.padEnd(7)} ${diff.padEnd(6)} #${trial} finished ${finished}/${cars.length} ` +
           `win=${formatRaceTime(times[0]!)} last=${formatRaceTime(times[times.length - 1]!)} bestLap=${formatRaceTime(best)} ` +
-          `falls=${falls} respawns=${respawns} wallHits=${wall} sim=${ms.toFixed(0)}ms (ideal ${idealMs.toFixed(0)}ms)`,
+          `falls=${falls} respawns=${respawns} wallHits=${wall}${stopNote} sim=${ms.toFixed(0)}ms (ideal ${idealMs.toFixed(0)}ms)`,
       );
       for (const c of cars) {
         if (!c.progress.finished) {

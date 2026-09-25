@@ -114,3 +114,34 @@ describe('vehicle physics', () => {
     expect(20 - heavy.vx).toBeLessThan(light.vx);
   });
 });
+
+import { getCourseDef } from '../src/config/courses';
+import { Track } from '../src/courses/Track';
+import { SeededRandom } from '../src/core/math';
+import { buildRaceCars } from '../src/game/RaceSetup';
+import { RaceWorld } from '../src/game/RaceWorld';
+
+describe('course-out respawn penalty (v3)', () => {
+  it('locks controls for 2 seconds after respawn, then releases', () => {
+    expect(physicsConfig.respawn.lockSeconds).toBe(2);
+    const track = Track.build(getCourseDef('touge'));
+    const rng = new SeededRandom(1);
+    const cars = buildRaceCars({ mode: 'pure', courseId: 'touge', humanCarIds: ['apex86'], totalCars: 2, difficulty: 'weak' }, track, () => rng.next());
+    const world = new RaceWorld(track, cars);
+    world.startRace();
+    const car = cars.find((c) => c.isHuman)!;
+    world.respawn(car);
+    expect(car.lockTimer).toBeCloseTo(2);
+    const s0 = car.body.trackS;
+    car.controls.throttle = 1;
+    for (let t = 0; t < 1.9; t += dt) world.step(dt);
+    expect(car.isLocked).toBe(true);
+    expect(Math.abs(track.deltaS(s0, car.body.trackS))).toBeLessThan(0.5);
+    for (let t = 0; t < 1.5; t += dt) {
+      car.controls.throttle = 1;
+      world.step(dt);
+    }
+    expect(car.isLocked).toBe(false);
+    expect(car.body.forwardSpeed).toBeGreaterThan(3);
+  });
+});

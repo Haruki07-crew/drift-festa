@@ -6,13 +6,13 @@
  * 描画側 (RaceSession) はイベントを購読して音や演出を出す。
  * 描画なしでも動くため、ヘッドレスのシミュレーション検証 (scripts/sim-race.ts) にも使える。
  */
-import { gameConfig } from '../config/game';
+import { gameConfig, raceTypeConfig } from '../config/game';
 import { gimmickConfig } from '../config/gimmicks';
 import { physicsConfig } from '../config/physics';
 import { createTrackPoint, type Track, type TrackPoint } from '../courses/Track';
 import { GimmickSystem } from '../gimmicks/GimmickSystem';
 import { NpcDriver, type TrafficCar } from '../npc/NpcDriver';
-import { RacingLine, computeIdealOffsets, computeSpeedProfile } from '../npc/RacingLine';
+import { RacingLine, avoidLowGrip, computeIdealOffsets, computeSpeedProfile } from '../npc/RacingLine';
 import { resolveCarCollisions, type CarContact } from '../physics/CarCollision';
 import { TrackCollision } from '../physics/TrackCollision';
 import { stepVehicle } from '../physics/VehiclePhysics';
@@ -63,9 +63,13 @@ export class RaceWorld {
     this.cars = cars;
     this.events = events;
     this.trackCollision = new TrackCollision(track);
-    this.idealOffsets = idealOffsets ?? computeIdealOffsets(track);
     this.gimmicks = new GimmickSystem(track);
+    // 基本レーシングラインは路面ギミック (部分的に滑る所) を避ける
+    this.idealOffsets = avoidLowGrip(track, idealOffsets ?? computeIdealOffsets(track), (s, l) => this.gimmicks.gripAt(s, l));
     this.trackCollision.heightOffset = (_body, s) => this.gimmicks.heightOffsetAt(s);
+    if (this.gimmicks.drawbridges.length > 0 || this.gimmicks.platforms.length > 0) {
+      this.trackCollision.dynamicGap = (s, lateral) => this.gimmicks.isDynamicGap(s, lateral);
+    }
     this.traffic = cars.map((c) => ({ id: c.id, body: c.body }));
     this.rankEntries = cars.map((c) => ({ id: c.id, progress: c.progress }));
     this.bodies = cars.map((c) => c.body);
@@ -97,11 +101,12 @@ export class RaceWorld {
   /** スターティンググリッドに並べる (cars の並び順 = グリッド順) */
   placeOnGrid(): void {
     const g = gameConfig.grid;
-    const L = this.track.length;
+    // スタートラインの位置 (周回コースは 1周の終わり = length、Point to Point は startS)
+    const line = this.track.closed ? this.track.length : this.track.startS;
     this.cars.forEach((car, i) => {
       const row = Math.floor(i / 2);
       const side = i % 2 === 0 ? -1 : 1;
-      const s = L - g.firstRowOffset - row * g.rowSpacing - (side > 0 ? g.rowSpacing * 0.35 : 0);
+      const s = line - g.firstRowOffset - row * g.rowSpacing - (side > 0 ? g.rowSpacing * 0.35 : 0);
       const p = this.track.worldAt(s, side * g.lateralOffset, this.tmpPoint);
       car.body.place(p.x, p.y, p.z, Math.atan2(p.tx, p.tz));
       car.body.trackHint = this.track.sampleIndexAt(s);
@@ -134,8 +139,13 @@ export class RaceWorld {
       } else if (!started) {
         resetControls(car.controls);
       }
-      // ゴール後の人間の車は自動で減速
-      if (car.progress.finished && car.isHuman) {
+      // ゴール後の人間の車は自動で減速。Point to Point は NPC も含めて退避路の中で止まる
+      if (car.progress.finished && !this.track.closed) {
+        car.controls.throttle = 0;
+        // 止まった後もブレーキを押すと後退してしまうので、前へ動いている間だけ踏む
+        car.controls.brake = car.body.forwardSpeed > 0.5 ? raceTypeConfig.pointToPoint.finishBrake : 0;
+        car.controls.drift = false;
+      } else if (car.progress.finished && car.isHuman) {
         car.controls.throttle = 0;
         car.controls.brake = 0.4;
         car.controls.drift = false;
@@ -159,6 +169,7 @@ export class RaceWorld {
       }
       this.gimmicks.applyToBody(car.body, dt);
     }
+    this.applySlipstream(dt);
     this.contacts.length = 0;
     resolveCarCollisions(this.bodies, this.contacts);
     this.gimmicks.resolveObstacles(this.bodies);
@@ -176,7 +187,9 @@ export class RaceWorld {
       if (body.airborne && body.airMode === 'fall' && body.airTime > 0 && body.airTime <= dt * 1.01) {
         this.events.onFall?.(car);
       }
-      if (body.needsRespawn || (car.npc?.wantsRespawn ?? false)) {
+      // Point to Point のゴール後 (退避路で止まっている) は「動けない」とみなさない
+      const parked = car.progress.finished && !this.track.closed;
+      if (body.needsRespawn || ((car.npc?.wantsRespawn ?? false) && !parked)) {
         this.respawn(car);
       }
       if (car.lockTimer > 0) car.lockTimer = Math.max(0, car.lockTimer - dt);
@@ -222,11 +235,14 @@ export class RaceWorld {
     const track = this.track;
     const body = car.body;
     const cp = car.progress.lastCheckpoint;
-    const cpS = cp < 0 ? track.length - gameConfig.grid.firstRowOffset : track.checkpoints[cp]!;
+    const startLine = track.closed ? track.length : track.startS;
+    const cpS = cp < 0 ? startLine - gameConfig.grid.firstRowOffset : track.checkpoints[cp]!;
     const s = this.gimmicks.safeRespawnS(cpS);
     // 他の車と重ならない横位置を探す
     const hw = track.pointAt(s, this.tmpPoint).halfWidth;
-    const candidates = [0, -4, 4, -7, 7].filter((l) => Math.abs(l) < hw - 1.5);
+    // 前方の障害物 (中央分離帯など) の真後ろには置かない
+    const candidates = [0, -4, 4, -7, 7].filter((l) => Math.abs(l) < hw - 1.5 && !this.gimmicks.lateralBlockedAhead(s, l, 60));
+    if (candidates.length === 0) candidates.push(0);
     let lateral = 0;
     let bestClear = -Infinity;
     for (const l of candidates) {
@@ -254,6 +270,41 @@ export class RaceWorld {
     car.respawnCount++;
     car.npc?.reset();
     this.events.onRespawn?.(car);
+  }
+
+  /**
+   * スリップストリーム: 前の車の真後ろ (range 以内・横ずれ lateralWidth 以内) にいると
+   * 空気抵抗が減り、最高速度と加速が少し上がる。全車同じ条件 (NPC だけの補正ではない)。
+   */
+  private applySlipstream(dt: number): void {
+    const cfg = gimmickConfig.slipstream;
+    for (const car of this.cars) {
+      const b = car.body;
+      let target = 0;
+      if (!b.airborne && b.forwardSpeed > cfg.minSpeed && this.raceStarted) {
+        for (const other of this.cars) {
+          if (other === car || other.body.airborne) continue;
+          const o = other.body;
+          const dx = o.x - b.x;
+          const dz = o.z - b.z;
+          const ahead = dx * b.forwardX + dz * b.forwardZ;
+          if (ahead <= 2 || ahead > cfg.range) continue;
+          const side = Math.abs(dx * b.rightX + dz * b.rightZ);
+          if (side > cfg.lateralWidth) continue;
+          // 同じ向きに走っている車だけ
+          if (o.forwardX * b.forwardX + o.forwardZ * b.forwardZ < 0.8) continue;
+          const t = (1 - ahead / cfg.range) * 0.5 + 0.5;
+          if (t > target) target = t;
+        }
+      }
+      const rate = target > b.draft ? 1 / cfg.buildUpSeconds : 1 / cfg.fadeSeconds;
+      b.draft = target > b.draft ? Math.min(target, b.draft + rate * dt) : Math.max(target, b.draft - rate * dt);
+      if (b.draft > 0) {
+        const mul = this.gimmicks.draftMultiplierAt(b.trackS);
+        b.zoneMaxSpeedMul *= 1 + cfg.maxSpeedBonus * b.draft * mul;
+        b.zoneAccelMul *= 1 + cfg.accelBonus * b.draft * mul;
+      }
+    }
   }
 
   private updateWrongWay(car: RaceCar, dt: number): void {

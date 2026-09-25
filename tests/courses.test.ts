@@ -7,21 +7,23 @@ import { SeededRandom } from '../src/core/math';
 import { buildRaceCars } from '../src/game/RaceSetup';
 import { RaceWorld } from '../src/game/RaceWorld';
 
-describe('10 courses', () => {
-  it('has 10 courses with unique ids and prefixes that all load', () => {
-    expect(COURSES.length).toBe(10);
-    expect(new Set(COURSES.map((c) => c.id)).size).toBe(10);
-    expect(new Set(COURSES.map((c) => c.idPrefix)).size).toBe(10);
+describe('all courses', () => {
+  it('have unique ids and prefixes and all load', () => {
+    expect(COURSES.length).toBeGreaterThanOrEqual(10);
+    expect(new Set(COURSES.map((c) => c.id)).size).toBe(COURSES.length);
+    expect(new Set(COURSES.map((c) => c.idPrefix)).size).toBe(COURSES.length);
     for (const def of COURSES) {
       const track = Track.build(def);
       expect(track.length).toBeGreaterThan(1000);
-      expect(track.checkpoints.length).toBe(def.checkpointCount);
+      // Point to Point はゴールラインが最後のチェックポイントとして加わる
+      expect(track.checkpoints.length).toBe(def.checkpointCount + (track.closed ? 0 : 1));
+      expect(track.closed).toBe(def.raceType === 'circuit');
     }
   });
 
-  // 各コースで NPC が 3 周を完走できる (ヘッドレス。全難易度は npm run sim で確認)
+  // 各コースで NPC が完走できる (周回コースは3周、Point to Point はゴールまで。全難易度は npm run sim で確認)
   for (const def of COURSES) {
-    it(`NPCs finish 3 laps on ${def.id}`, () => {
+    it(`NPCs finish the race on ${def.id}`, () => {
       const track = Track.build(def);
       const rng = new SeededRandom(99);
       const difficulty = NPC_DIFFICULTIES[def.id.length % NPC_DIFFICULTIES.length]!;
@@ -34,7 +36,7 @@ describe('10 courses', () => {
       while (world.time < 400 && !cars.every((c) => c.progress.finished)) world.step(dt);
       for (const c of cars) {
         expect(c.progress.finished, `${c.pattern?.id} lap=${c.progress.lap}`).toBe(true);
-        expect(c.progress.lapTimes.length).toBe(3);
+        expect(c.progress.lapTimes.length).toBe(track.closed ? 3 : 1);
       }
     }, 30000);
   }

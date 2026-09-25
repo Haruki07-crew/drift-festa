@@ -5,6 +5,7 @@
  * - ドリフト中はカメラの向きの追従を遅くし、車が横を向いて滑る様子が見える
  * - 衝突時の軽いカメラシェイク (設定で OFF 可能)
  * - スタート前のイントロ演出 (車の周りを回り込む)
+ * - (v3) 注視点をコースの先へ寄せ、高速・急カーブでも先のカーブが見えるようにする
  */
 import * as THREE from 'three';
 import { gimmickConfig } from '../config/gimmicks';
@@ -13,6 +14,12 @@ import { clamp, damp, dampAngle } from '../core/math';
 import type { VehicleBody } from '../physics/VehicleBody';
 
 const cfg = cameraConfig;
+
+/**
+ * コースの先の点を返す関数 (RaceSession がコース中心線から作る)。
+ * distance [m] 先の中心線上の点を out に入れ、その付近の曲率 [1/m] を返す。
+ */
+export type TrackLookProvider = (distance: number, out: THREE.Vector3) => number;
 
 export class ChaseCamera {
   readonly camera: THREE.PerspectiveCamera;
@@ -27,6 +34,10 @@ export class ChaseCamera {
   private accelSmoothed = 0;
   /** バンクに合わせたカメラの傾き [rad] */
   private roll = 0;
+  private readonly trackPoint = new THREE.Vector3();
+  private trackBlend = 0;
+  /** コースの先を見るための関数 (なければ車の正面だけを見る) */
+  trackLook: TrackLookProvider | null = null;
   shakeEnabled = true;
 
   constructor(far: number) {
@@ -52,12 +63,34 @@ export class ChaseCamera {
     const dist = cfg.distance + cfg.speedDistanceBoost * speedRatio;
     const sx = Math.sin(this.yaw);
     const sz = Math.cos(this.yaw);
-    this.pos.set(body.x - sx * dist, body.y + cfg.height, body.z - sz * dist);
+    this.pos.set(body.x - sx * dist, body.y + cfg.height + cfg.speedHeightBoost * Math.min(1, speedRatio), body.z - sz * dist);
     this.look.set(
       body.x + Math.sin(body.heading) * cfg.lookAhead * 0.5 + sx * cfg.lookAhead * 0.5,
       body.y + cfg.lookHeight,
       body.z + Math.cos(body.heading) * cfg.lookAhead * 0.5 + sz * cfg.lookAhead * 0.5,
     );
+  }
+
+  /** 注視点をコースの先 (カーブの向こう) へ寄せる */
+  private applyTrackLook(body: VehicleBody, dt: number): void {
+    const tl = cfg.trackLook;
+    if (!this.trackLook || body.airMode === 'fall') {
+      this.trackBlend = damp(this.trackBlend, 0, tl.response, dt);
+      return;
+    }
+    const speed = Math.max(0, body.forwardSpeed);
+    const distance = Math.min(tl.maxDistance, tl.baseDistance + speed * tl.perSpeed);
+    const k = this.trackLook(distance, this.trackPoint);
+    // 車がコースと逆を向いている (スピン・逆走) 時は寄せない
+    const dx = this.trackPoint.x - body.x;
+    const dz = this.trackPoint.z - body.z;
+    const facing = (dx * body.forwardX + dz * body.forwardZ) / (Math.hypot(dx, dz) || 1);
+    const want = facing > 0.2 ? Math.min(tl.maxBlend, tl.blend + Math.abs(k) * tl.curvatureBlend) : 0;
+    this.trackBlend = damp(this.trackBlend, want, tl.response, dt);
+    const b = this.trackBlend;
+    this.look.x += (this.trackPoint.x - this.look.x) * b;
+    this.look.z += (this.trackPoint.z - this.look.z) * b;
+    this.look.y += (this.trackPoint.y + cfg.lookHeight - this.look.y) * b * 0.5;
   }
 
   update(body: VehicleBody, dt: number): void {
@@ -72,6 +105,7 @@ export class ChaseCamera {
       this.yaw = dampAngle(this.yaw, body.heading, response, dt);
     }
     this.computeTarget(body, speedRatio);
+    this.applyTrackLook(body, dt);
     if (body.airMode === 'fall') {
       // コースアウトの落下中はその場から見下ろす
       this.pos.copy(this.camera.position);

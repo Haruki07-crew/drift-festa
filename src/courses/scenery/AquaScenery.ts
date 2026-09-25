@@ -6,6 +6,7 @@ import type { QualityPreset } from '../../config/graphics';
 import { SeededRandom } from '../../core/math';
 import { GeometryBuilder } from '../../render/GeometryBuilder';
 import type { ResourceBag } from '../../render/dispose';
+import { RoadCorridor } from '../RoadClearance';
 import type { Track } from '../Track';
 import { addBox } from './CircuitScenery';
 import { coral, fish, seaweed } from './Props';
@@ -31,6 +32,10 @@ export function buildAquaScenery(track: Track, preset: QualityPreset, bag: Resou
   );
   sea.position.set(cx, -0.4, cz);
   sea.renderOrder = 4;
+  sea.name = 'sea-surface';
+  // 海中区間 (変形ギミック) は設計どおり海面の下を走るので、安全帯の検査対象外にする
+  // (半透明で、潜る瞬間は下から見える演出)
+  sea.userData.clearanceExempt = true;
   group.add(sea);
 
   // --- 海底 ---
@@ -102,26 +107,46 @@ export function buildAquaScenery(track: Track, preset: QualityPreset, bag: Resou
   const center = underwater.length > 0
     ? underwater.reduce((acc, smp) => ({ x: acc.x + smp.x / underwater.length, z: acc.z + smp.z / underwater.length }), { x: 0, z: 0 })
     : { x: cx, z: cz };
+  // 魚の周回軌道が海中トンネルの道路を横切らないように選ぶ
+  const corridor = new RoadCorridor(track);
+  const orbitClear = (r: number, y: number, size: number): boolean => {
+    for (let k = 0; k < 48; k++) {
+      const a = (k / 48) * Math.PI * 2;
+      if (corridor.isNearRoad(center.x + Math.cos(a) * r, y, center.z + Math.sin(a) * r, size, size + 3)) return false;
+    }
+    return true;
+  };
+  const pickOrbit = (rMin: number, rMax: number, yMin: number, yMax: number, size: number): { r: number; y: number } => {
+    for (let tries = 0; tries < 60; tries++) {
+      const r = rng.range(rMin, rMax);
+      const y = rng.range(yMin, yMax);
+      if (orbitClear(r, y, size)) return { r, y };
+    }
+    // 見つからなければ道路より十分深い海底付近を回る
+    return { r: rMax + 40, y: env.groundLevel + 4 };
+  };
   const bigFishGeo = bag.add(fish(0xffa02a, 0xff5a2a));
   const bigFishMat = bag.add(new THREE.MeshLambertMaterial({ vertexColors: true }));
   const bigFish: { mesh: THREE.Mesh; radius: number; speed: number; phase: number; y: number }[] = [];
   for (let k = 0; k < 4; k++) {
     const m = new THREE.Mesh(bigFishGeo, bigFishMat);
-    m.scale.setScalar(rng.range(3, 5));
+    const scale = rng.range(3, 5);
+    m.scale.setScalar(scale);
+    m.name = 'big-fish';
     group.add(m);
-    bigFish.push({ mesh: m, radius: rng.range(90, 170), speed: rng.range(0.05, 0.1) * (k % 2 === 0 ? 1 : -1), phase: rng.range(0, 6.28), y: rng.range(-32, -14) });
+    const orbit = pickOrbit(60, 200, env.groundLevel + 5, -8, scale * 2.2);
+    bigFish.push({ mesh: m, radius: orbit.r, speed: rng.range(0.05, 0.1) * (k % 2 === 0 ? 1 : -1), phase: rng.range(0, 6.28), y: orbit.y });
   }
   // 魚の群れ
   const schoolCount = Math.floor(60 * preset.sceneryDensity) + 10;
   const schoolGeo = fish(0x6ae0ff, 0x2a8aff);
-  const school = new THREE.InstancedMesh(bag.add(schoolGeo), bag.add(new THREE.MeshLambertMaterial({ vertexColors: true })), schoolCount);
+  const school: THREE.InstancedMesh = new THREE.InstancedMesh(bag.add(schoolGeo), bag.add(new THREE.MeshLambertMaterial({ vertexColors: true })), schoolCount);
   school.frustumCulled = false;
-  const schoolData = Array.from({ length: schoolCount }, () => ({
-    r: rng.range(40, 110),
-    a: rng.range(0, 6.28),
-    y: rng.range(-30, -8),
-    s: rng.range(0.25, 0.45),
-  }));
+  school.name = 'fish-school';
+  const schoolData = Array.from({ length: schoolCount }, () => {
+    const orbit = pickOrbit(30, 150, env.groundLevel + 3, -6, 2.5);
+    return { r: orbit.r, a: rng.range(0, 6.28), y: orbit.y, s: rng.range(0.25, 0.45) };
+  });
   group.add(school);
 
   // --- 泡 ---

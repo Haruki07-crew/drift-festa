@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import type { EdgeType } from '../config/courses';
 import { GeometryBuilder, shade } from '../render/GeometryBuilder';
 import type { ResourceBag } from '../render/dispose';
+import { RoadCorridor } from './RoadClearance';
 import type { Track, TrackSample } from './Track';
 
 const CURB_CURVATURE = 1 / 90;
@@ -21,14 +22,18 @@ export interface TrackMeshes {
 }
 
 export interface TrackMeshOptions {
-  /** 路面を描かないサンプル (ガラス道路・シーソーなど、ギミック側で描く区間) */
+  /** 路面を描かないサンプル (ガラス道路・シーソー・動く足場など、ギミック側で描く区間) */
   skipRoad?: (sampleIndex: number) => boolean;
+  /** 路面の一部 (横位置 min..max) だけ描かないサンプル (跳ね橋の車線など) */
+  roadCut?: (sampleIndex: number) => { min: number; max: number } | null;
 }
 
 export function buildTrackMeshes(track: Track, bag: ResourceBag, opts: TrackMeshOptions = {}): TrackMeshes {
   const env = track.def.environment;
   const group = new THREE.Group();
   group.name = 'track';
+  // 道路自身は安全帯の検査対象外 (高架の柱だけは検査する)
+  group.userData.clearanceExempt = true;
 
   const road = new GeometryBuilder();
   const deco = new GeometryBuilder();
@@ -51,6 +56,17 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag, opts: TrackMesh
   const lineColor = new THREE.Color(env.lineColor);
 
   const supports = env.roadSupports ?? 'skirt';
+  const corridor = supports === 'pillars' ? new RoadCorridor(track) : null;
+  /** 高架の柱が (立体交差の) 下の道路の上に立ってしまわないか */
+  const pillarBlocksRoad = (s: TrackSample): boolean => {
+    if (!corridor) return false;
+    for (let y = env.groundLevel + 0.5; y < s.y - 1.5; y += 1) {
+      for (const [ox, oz] of [[0, 0], [0.8, 0.8], [-0.8, 0.8], [0.8, -0.8], [-0.8, -0.8]] as const) {
+        if (corridor.test(s.x + ox, y, s.z + oz)) return true;
+      }
+    }
+    return false;
+  };
   const pillars: THREE.Matrix4[] = [];
   // バンクを考慮した路面上の点
   const at = (s: TrackSample, lateral: number, dy: number): [number, number, number] => [
@@ -97,7 +113,8 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag, opts: TrackMesh
     }
   };
 
-  for (let i = 0; i < n; i++) {
+  // 開いた道 (Point to Point) は終点から始点へ戻る区間を描かない
+  for (let i = 0; i < track.segmentCount; i++) {
     const s0 = track.samples[i]!;
     const s1 = track.samples[(i + 1) % n]!;
     const hw0 = s0.halfWidth;
@@ -107,13 +124,20 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag, opts: TrackMesh
     if (s0.gap || s1.gap) continue;
     const skip = opts.skipRoad?.(i) ?? false;
 
+    const cut = skip ? null : (opts.roadCut?.(i) ?? null);
     // --- 路面 ---
-    if (!skip) strip(road, i, -hw0, hw0, 0, band ? roadA : roadB, -hw1, hw1);
+    if (!skip && !cut) strip(road, i, -hw0, hw0, 0, band ? roadA : roadB, -hw1, hw1);
+    if (cut) {
+      if (cut.min > -hw0) strip(road, i, -hw0, cut.min, 0, band ? roadA : roadB, -hw1, Math.max(-hw1, cut.min));
+      if (cut.max < hw0) strip(road, i, cut.max, hw0, 0, band ? roadA : roadB, Math.min(hw1, cut.max), hw1);
+    }
     // --- 高架の柱 ---
-    if (supports === 'pillars' && i % 12 === 0 && s0.y - env.groundLevel > 3) {
-      const h = s0.y - env.groundLevel;
+    if (supports === 'pillars' && i % 12 === 0 && s0.y - env.groundLevel > 3 && !pillarBlocksRoad(s0)) {
+      // バンクした路面の低い側より上に柱の頭が出ないようにする
+      const top = s0.y - 0.5 - 1.2 * Math.abs(Math.tan(s0.bank));
+      const h = top - env.groundLevel;
       pillars.push(new THREE.Matrix4().compose(
-        new THREE.Vector3(s0.x, env.groundLevel + h / 2 - 0.5, s0.z),
+        new THREE.Vector3(s0.x, env.groundLevel + h / 2, s0.z),
         new THREE.Quaternion(),
         new THREE.Vector3(1, h, 1),
       ));
@@ -169,7 +193,7 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag, opts: TrackMesh
       }
     }
 
-    if (skip) continue;
+    if (skip || cut) continue;
     // --- 縁石 (コーナーの両側) ---
     if (Math.abs(s0.curvature) > CURB_CURVATURE) {
       const red = Math.floor(s0.s / CURB_SEGMENT) % 2 === 0;
@@ -189,27 +213,34 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag, opts: TrackMesh
     }
   }
 
-  // --- スタート/ゴールライン (市松模様) ---
-  const s0 = track.samples[0]!;
-  const cols = 12;
-  const rows = 3;
-  const cell = (s0.halfWidth * 2) / cols;
-  const depth = 1.1;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const color = (r + c) % 2 === 0 ? 0xffffff : 0x111111;
-      const la = -s0.halfWidth + c * cell;
-      const lb = la + cell;
-      const f0 = (r - rows / 2) * depth;
-      const f1 = f0 + depth;
-      const p = (l: number, f: number): [number, number, number] => [
-        s0.x + s0.rx * l + s0.tx * f,
-        s0.y + 0.035,
-        s0.z + s0.rz * l + s0.tz * f,
-      ];
-      deco.quad(...p(la, f0), ...p(lb, f0), ...p(lb, f1), ...p(la, f1), color);
+  // --- スタート/ゴールライン (市松模様)。Point to Point はスタートとゴールが別の場所 ---
+  const checkerLine = (lineS: number): void => {
+    const s0 = track.sample(track.sampleIndexAt(lineS));
+    const pt = track.pointAt(lineS);
+    const cols = 12;
+    const rows = 3;
+    const cell = (pt.halfWidth * 2) / cols;
+    const depth = 1.1;
+    const rx = -pt.tz;
+    const rz = pt.tx;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const color = (r + c) % 2 === 0 ? 0xffffff : 0x111111;
+        const la = -pt.halfWidth + c * cell;
+        const lb = la + cell;
+        const f0 = (r - rows / 2) * depth;
+        const f1 = f0 + depth;
+        const p = (l: number, f: number): [number, number, number] => [
+          pt.x + rx * l + pt.tx * f,
+          pt.y + 0.035 + l * Math.tan(s0.bank) + f * s0.slope,
+          pt.z + rz * l + pt.tz * f,
+        ];
+        deco.quad(...p(la, f0), ...p(lb, f0), ...p(lb, f1), ...p(la, f1), color);
+      }
     }
-  }
+  };
+  checkerLine(track.startS);
+  if (!track.closed) checkerLine(track.goalS);
 
   const roadMat = bag.add(new THREE.MeshLambertMaterial({ vertexColors: true }));
   const decoMat = bag.add(
@@ -237,6 +268,9 @@ export function buildTrackMeshes(track: Track, bag: ResourceBag, opts: TrackMesh
     const pillarGeo = bag.add(new THREE.BoxGeometry(1.6, 1, 1.6));
     const pillarMat = bag.add(new THREE.MeshLambertMaterial({ color: env.night ? 0x2a2c3a : 0xb8bcc6 }));
     const pm = new THREE.InstancedMesh(pillarGeo, pillarMat, pillars.length);
+    pm.name = 'pillars';
+    // 立体交差で下の道路に柱が立っていないかは検査する
+    pm.userData.clearanceCheck = true;
     pillars.forEach((m, k) => pm.setMatrixAt(k, m));
     pm.instanceMatrix.needsUpdate = true;
     pm.computeBoundingSphere();

@@ -45,13 +45,13 @@ export function buildJungleScenery(track: Track, preset: QualityPreset, bag: Res
     return { ...p, y: p.y - 0.3, sx: s, sy: s * rng.range(0.9, 1.4), sz: s, rotY: rng.range(0, 6.28), color: rng.pick(tints) };
   });
   const treeMesh = makeInstanced(broadleafTree(), new THREE.MeshLambertMaterial({ vertexColors: true }), trees, bag, { castShadow: preset.shadows });
-  if (treeMesh) group.add(treeMesh);
+  if (treeMesh) group.add(Object.assign(treeMesh, { name: 'trees' }));
   const palms = scatter(grid, rng, Math.floor(260 * preset.sceneryDensity), area, 3, terrain.heightAt).map<InstanceSpec>((p) => {
     const s = rng.range(0.9, 1.5);
     return { ...p, y: p.y - 0.2, sx: s, sy: s, sz: s, rotY: rng.range(0, 6.28) };
   });
   const palmMesh = makeInstanced(palmTree(), new THREE.MeshLambertMaterial({ vertexColors: true }), palms, bag);
-  if (palmMesh) group.add(palmMesh);
+  if (palmMesh) group.add(Object.assign(palmMesh, { name: 'palms' }));
 
   // --- 崩れた石柱 (コース脇) ---
   const pillars: InstanceSpec[] = [];
@@ -65,7 +65,7 @@ export function buildJungleScenery(track: Track, preset: QualityPreset, bag: Res
     pillars.push({ x, y: terrain.heightAt(x, z) - 0.5, z, sx: 1, sy: rng.range(0.4, 1.1), sz: 1, rotY: rng.range(0, 6.28) });
   }
   const pillarMesh = makeInstanced(ruinPillar(), new THREE.MeshLambertMaterial({ vertexColors: true }), pillars, bag, { castShadow: preset.shadows });
-  if (pillarMesh) group.add(pillarMesh);
+  if (pillarMesh) group.add(Object.assign(pillarMesh, { name: 'ruin-pillars' }));
 
   // --- 神殿 (階段ピラミッド) と巨大な像 ---
   const temple = new GeometryBuilder();
@@ -82,6 +82,7 @@ export function buildJungleScenery(track: Track, preset: QualityPreset, bag: Res
   addBox(temple, tx, ty + 28, tz, 8, 6, 8, 0, 0x6a6452);
   const templeMesh = new THREE.Mesh(bag.add(temple.build()), bag.add(new THREE.MeshLambertMaterial({ vertexColors: true })));
   templeMesh.castShadow = preset.shadows;
+  templeMesh.name = 'temple';
   group.add(templeMesh);
   const statueGeo = bag.add(statue());
   const statueMat = bag.add(new THREE.MeshLambertMaterial({ vertexColors: true }));
@@ -94,6 +95,7 @@ export function buildJungleScenery(track: Track, preset: QualityPreset, bag: Res
     m.position.set(x, terrain.heightAt(x, z) - 1, z);
     m.rotation.y = Math.atan2(p.x - x, p.z - z);
     m.castShadow = preset.shadows;
+    m.name = 'statue';
     group.add(m);
   }
 
@@ -122,8 +124,8 @@ export function buildJungleScenery(track: Track, preset: QualityPreset, bag: Res
   const positions: number[] = [];
   const uvs: number[] = [];
   for (let s = s0; s < s1; s += 4) {
-    const pa = track.pointAt(s);
-    const lat = -(pa.halfWidth - 0.5);
+    // 滝は分岐の中央 (石の分離帯の上) に落ちる。左レーンは滝の裏側を通る
+    const lat = 0;
     const a2 = track.worldAt(s, lat);
     const c2 = track.worldAt(s + 4, lat);
     const top = 16;
@@ -137,15 +139,17 @@ export function buildJungleScenery(track: Track, preset: QualityPreset, bag: Res
   fallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   const waterfall = new THREE.Mesh(fallGeo, fallMat);
   waterfall.renderOrder = 4;
+  waterfall.name = 'waterfall';
+  // 中央分離帯 (障害物) と同じ位置なので安全帯の検査対象外
+  waterfall.userData.clearanceExempt = true;
   group.add(waterfall);
-  // 滝の上の岩の張り出し
+  // 滝の上の岩の張り出し (高い位置なので車の邪魔にならない)
   const cliff = new GeometryBuilder();
   for (let s = s0; s < s1; s += 8) {
     const p = track.pointAt(s);
-    const lat = -(p.halfWidth + 2);
-    addBox(cliff, p.x - p.tz * lat, p.y + 15, p.z + p.tx * lat, 9, 4, 8, Math.atan2(p.tx, p.tz), 0x6a6252);
+    addBox(cliff, p.x, p.y + 16, p.z, 9, 4, 6, Math.atan2(p.tx, p.tz), 0x6a6252);
   }
-  group.add(new THREE.Mesh(bag.add(cliff.build()), bag.add(new THREE.MeshLambertMaterial({ vertexColors: true }))));
+  group.add(Object.assign(new THREE.Mesh(bag.add(cliff.build()), bag.add(new THREE.MeshLambertMaterial({ vertexColors: true }))), { name: 'waterfall-cliff' }));
 
   // --- 吊り橋のロープと支柱 ---
   const bridge = new GeometryBuilder();
@@ -153,12 +157,22 @@ export function buildJungleScenery(track: Track, preset: QualityPreset, bag: Res
     const p = track.pointAt(s);
     const h = Math.atan2(p.tx, p.tz);
     for (const side of [-1, 1]) {
-      const lat = side * (p.halfWidth + 0.2);
-      addBox(bridge, p.x - p.tz * lat, p.y, p.z + p.tx * lat, 0.3, 1.4, 0.3, h, 0x6b4a2b);
+      // 支柱とロープは路肩の外側 (落下判定の少し外) に立てる。道幅が変わる端でもはみ出さないよう前後の最大幅を使う
+      let hw = p.halfWidth;
+      let openEdges = true;
+      for (let d = -4; d <= 4; d += 1) {
+        hw = Math.max(hw, track.pointAt(s + d).halfWidth);
+        const smp = track.sample(track.sampleIndexAt(s + d));
+        if (smp.left !== 'fall' || smp.right !== 'fall') openEdges = false;
+      }
+      // 吊り橋 (柵のない区間) の中だけに張る
+      if (!openEdges) continue;
+      const lat = side * (hw + 0.7);
+      addBox(bridge, p.x - p.tz * lat, p.y - 0.3, p.z + p.tx * lat, 0.3, 1.7, 0.3, h, 0x6b4a2b);
       addBox(bridge, p.x - p.tz * lat, p.y + 1.2, p.z + p.tx * lat, 6, 0.12, 0.12, h, 0xc8b080);
     }
   }
-  group.add(new THREE.Mesh(bag.add(bridge.build()), bag.add(new THREE.MeshLambertMaterial({ vertexColors: true }))));
+  group.add(Object.assign(new THREE.Mesh(bag.add(bridge.build()), bag.add(new THREE.MeshLambertMaterial({ vertexColors: true }))), { name: 'rope-bridge' }));
 
   let time = 0;
   const update = (dt: number): void => {

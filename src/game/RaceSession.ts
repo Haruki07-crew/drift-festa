@@ -12,14 +12,14 @@ import type { Combatant } from '../battle/Combatant';
 import { ChaseCamera } from '../camera/ChaseCamera';
 import { audioConfig } from '../config/audio';
 import { battleConfig } from '../config/battle';
-import { getCourseDef } from '../config/courses';
+import { getCourseDef, type RaceType } from '../config/courses';
 import { controlsConfig, drivingBindings } from '../config/controls';
 import { gameConfig } from '../config/game';
 import { ITEM_DEFS } from '../config/items';
 import { cameraConfig } from '../config/graphics';
 import { physicsConfig } from '../config/physics';
 import { CourseView } from '../courses/CourseView';
-import { Track } from '../courses/Track';
+import { Track, createTrackPoint } from '../courses/Track';
 import { DebugManager } from '../debug/DebugManager';
 import type { InputManager } from '../input/InputManager';
 import { PlayerController } from '../input/PlayerController';
@@ -27,7 +27,7 @@ import { ItemBoxView } from '../items/ItemBoxes';
 import { NpcDriver } from '../npc/NpcDriver';
 import { generateNpcPatterns } from '../npc/NpcPatterns';
 import { RacingLine, computeIdealOffsets, computeSpeedProfile } from '../npc/RacingLine';
-import { ParticleSystem, BOOST_STYLE, SMOKE_STYLE, SPARK_STYLE } from '../render/ParticleSystem';
+import { ParticleSystem, BOOST_STYLE, SMOKE_STYLE, SPARK_STYLE, SPLASH_STYLE } from '../render/ParticleSystem';
 import type { RenderContext, Viewport } from '../render/RenderContext';
 import type { GameSettings } from '../storage/StorageManager';
 import { Hud } from '../ui/Hud';
@@ -35,7 +35,7 @@ import { PLAYER_COLORS } from '../ui/Minimap';
 import { CarModel } from '../vehicles/CarModel';
 import type { RaceCar } from './RaceCar';
 import { computeGap } from './RaceProgress';
-import { buildRaceCars, normalizeSetup, type RaceSetup } from './RaceSetup';
+import { buildRaceCars, courseTiming, normalizeSetup, type RaceSetup } from './RaceSetup';
 import { RaceWorld } from './RaceWorld';
 
 export interface RaceSessionDeps {
@@ -71,6 +71,11 @@ export interface BattleResultInfo {
 export interface RaceResult {
   setup: RaceSetup;
   courseName: string;
+  /** コースの種類と距離 (結果画面の表示用) */
+  raceType: RaceType;
+  /** 1周 (Point to Point はスタート〜ゴール) の距離 [m] */
+  raceLength: number;
+  laps: number;
   entries: RaceResultEntry[];
   battle: BattleResultInfo | null;
 }
@@ -116,6 +121,10 @@ export class RaceSession {
   private readonly smoke: ParticleSystem;
   private readonly sparks: ParticleSystem;
   private readonly boostFx: ParticleSystem;
+  private readonly splashFx: ParticleSystem;
+  /** 天候の粒子を出す位置 (画面ごと) */
+  private readonly weatherCenters: THREE.Vector3[] = [];
+  private readonly weatherS: number[] = [];
   private readonly shadowTexture: THREE.Texture;
   private readonly debug: DebugManager | null;
   private readonly aim: AimController | null;
@@ -176,7 +185,7 @@ export class RaceSession {
     );
 
     // --- 描画 ---
-    this.courseView = new CourseView(track, this.scene, preset, this.world.gimmicks);
+    this.courseView = new CourseView(track, this.scene, preset, this.world.gimmicks, this.setup.humanCarIds.length);
     const fog = this.scene.fog;
     this.baseFog = fog instanceof THREE.Fog ? { color: fog.color.getHex(), near: fog.near, far: fog.far } : null;
     this.shadowTexture = makeShadowTexture();
@@ -188,6 +197,7 @@ export class RaceSession {
         {
           ghost: !car.isHuman,
           castShadow: preset.shadows,
+          headlight: car.isHuman && track.def.environment.night,
           label: split && car.isHuman ? `P${car.playerIndex + 1}` : undefined,
           labelColor: PLAYER_COLORS[car.playerIndex],
         },
@@ -199,7 +209,8 @@ export class RaceSession {
     this.smoke = new ParticleSystem(SMOKE_STYLE, preset.maxParticles);
     this.sparks = new ParticleSystem(SPARK_STYLE, Math.floor(preset.maxParticles / 2));
     this.boostFx = new ParticleSystem(BOOST_STYLE, Math.floor(preset.maxParticles / 2));
-    this.scene.add(this.smoke.points, this.sparks.points, this.boostFx.points);
+    this.splashFx = new ParticleSystem(SPLASH_STYLE, Math.floor(preset.maxParticles / 2));
+    this.scene.add(this.smoke.points, this.sparks.points, this.boostFx.points, this.splashFx.points);
 
     // --- プレイヤーごとのカメラ・HUD・音・操作 ---
     const isBattle = this.setup.mode === 'battle';
@@ -208,6 +219,14 @@ export class RaceSession {
       const viewport: Viewport = split ? { x: i * 0.5, y: 0, width: 0.5, height: 1 } : { x: 0, y: 0, width: 1, height: 1 };
       const camera = new ChaseCamera(far);
       camera.shakeEnabled = deps.settings().cameraShake;
+      // コースの先の中心線上の点を注視点の候補にする
+      const lookPoint = createTrackPoint();
+      camera.trackLook = (distance, out) => {
+        const s = car.body.trackS + distance;
+        track.worldAt(s, 0, lookPoint);
+        out.set(lookPoint.x, lookPoint.y, lookPoint.z);
+        return track.curvatureAt(s - distance * 0.5);
+      };
       camera.snap(car.body);
       const hud = new Hud(track, { playerIndex: car.playerIndex, split, battle: isBattle });
       hud.root.style.left = `${viewport.x * 100}%`;
@@ -452,10 +471,18 @@ export class RaceSession {
       model.update(car.body, dt, car.ghostTimer > 0);
       this.emitEffects(car);
     }
-    this.courseView.update(dt);
+    this.weatherCenters.length = this.views.length;
+    this.weatherS.length = this.views.length;
+    this.views.forEach((v, i) => {
+      const c = (this.weatherCenters[i] ??= new THREE.Vector3());
+      c.copy(v.camera.camera.position);
+      this.weatherS[i] = v.car.body.trackS;
+    });
+    this.courseView.update(dt, this.weatherCenters, this.weatherS);
     this.smoke.update(dt);
     this.sparks.update(dt);
     this.boostFx.update(dt);
+    this.splashFx.update(dt);
     if (this.battle) {
       this.bulletView?.update(this.battle.bullets);
       this.itemBoxView?.update(this.battle.boxes, dt);
@@ -508,7 +535,7 @@ export class RaceSession {
       {
         car,
         totalCars: world.cars.length,
-        laps: gameConfig.laps,
+        laps: car.progress.timing.laps,
         raceTime: world.time,
         gapAhead: ahead ? computeGap(car.progress, ahead.progress, world.time) : null,
         gapLeader: leader && leader !== car ? computeGap(car.progress, leader.progress, world.time) : null,
@@ -543,6 +570,15 @@ export class RaceSession {
       const z = b.z - b.forwardZ * 2.3;
       this.boostFx.emit(x, b.y + 0.5, z, -b.forwardX * 6 + b.vx * 0.5, 0, -b.forwardZ * 6 + b.vz * 0.5);
     }
+    // 水しぶき (水たまり・波・浅い水)
+    const wet = b.zoneDrag > 0 || b.surfaceKind === 'water';
+    if (wet && speed > 8 && Math.random() < 0.7) {
+      for (const side of [-1, 1]) {
+        const x = b.x - b.forwardX * 1.2 + b.rightX * side * 1.1;
+        const z = b.z - b.forwardZ * 1.2 + b.rightZ * side * 1.1;
+        this.splashFx.emit(x, b.y + 0.2, z, b.vx * 0.15 + b.rightX * side * 3, 0, b.vz * 0.15 + b.rightZ * side * 3);
+      }
+    }
   }
 
   private renderFrame(_dt: number): void {
@@ -553,6 +589,7 @@ export class RaceSession {
       this.smoke.setViewportHeight(h);
       this.sparks.setViewportHeight(h);
       this.boostFx.setViewportHeight(h);
+      this.splashFx.setViewportHeight(h);
       this.applyViewFog(v.car);
       render.renderViewport(this.scene, v.camera.camera, v.viewport);
     }
@@ -564,10 +601,17 @@ export class RaceSession {
     const base = this.baseFog;
     if (!(fog instanceof THREE.Fog) || !base) return;
     const env = this.world.track.def.environment;
+    const weatherFog = this.courseView.weather.fogFor(car.body.trackS);
+    this.courseView.weather.setHaze(weatherFog !== null && car.body.transformMode !== 'underwater');
     if (car.body.transformMode === 'underwater' && env.underwaterFogColor !== undefined) {
       fog.color.setHex(env.underwaterFogColor);
       fog.near = 10;
       fog.far = 170;
+    } else if (weatherFog) {
+      // 砂嵐・豪雨の区間は霧を濃くする
+      fog.color.setHex(weatherFog.color ?? base.color);
+      fog.near = weatherFog.near;
+      fog.far = weatherFog.far;
     } else {
       fog.color.setHex(base.color);
       fog.near = base.near;
@@ -610,7 +654,7 @@ export class RaceSession {
   private onLap(car: RaceCar): void {
     const v = this.viewOf(car);
     if (!v || car.progress.finished) return;
-    if (car.progress.lap === gameConfig.laps) {
+    if (car.progress.lap === car.progress.timing.laps) {
       v.hud.showMessage('FINAL LAP!', '', 2, 'final');
       this.deps.audio.play('finalLap', v.pan);
     } else {
@@ -682,7 +726,8 @@ export class RaceSession {
         isHuman: car.isHuman,
         playerIndex: car.playerIndex,
         finishTime: car.progress.finishTime,
-        bestLap: car.progress.bestLap,
+        // Point to Point は周回がないのでベストラップなし
+        bestLap: world.track.closed ? car.progress.bestLap : null,
         respawns: car.respawnCount,
         patternId: car.pattern?.id ?? null,
       };
@@ -697,7 +742,16 @@ export class RaceSession {
         shotsHit: p.shotsHit,
       };
     }
-    return { setup: this.setup, courseName: world.track.def.name, entries, battle };
+    const track = world.track;
+    return {
+      setup: this.setup,
+      courseName: track.def.name,
+      raceType: track.def.raceType,
+      raceLength: track.raceLength,
+      laps: courseTiming(track).laps,
+      entries,
+      battle,
+    };
   }
 
   dispose(): void {
@@ -714,6 +768,7 @@ export class RaceSession {
     this.smoke.dispose();
     this.sparks.dispose();
     this.boostFx.dispose();
+    this.splashFx.dispose();
     this.bulletView?.dispose();
     this.itemBoxView?.dispose();
     this.aim?.dispose();

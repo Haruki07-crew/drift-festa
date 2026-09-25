@@ -1,5 +1,41 @@
 # CHANGELOG
 
+## [3.0.0] - 2026-09-25
+
+### Added
+- コースの種類 `raceType`: CIRCUIT (周回) / **POINT TO POINT (スタート → ゴールの一本道)**。
+  開いた道の Track (助走路・退避路・道の両端の壁)、START → 中間チェックポイント → GOAL の判定と順位、
+  HUD (進行度 % / 残り距離 / 区間名)、追従ミニマップ + 進行バー、結果画面の平均速度、START / GOAL ゲート
+- 新コース 14 本 (計 24): POINT TO POINT = TOKYO MIDNIGHT EXPRESS / ALPINE ZERMATT RUN / COASTAL SUNSET DRIVE /
+  DESERT CANYON RUN / NORTHERN LIGHTS / EUROPE GRAND TOUR、CIRCUIT = AIRPORT RUSH / VOLCANO ISLAND / MEGA MALL /
+  SCHOOL FESTIVAL CHAOS / CLOUD KINGDOM / SPACE STATION / RAIN CITY / WIND FARM HILLS。それぞれ専用の背景と見せ場
+- 新ギミック: 加速ゲート、スリップストリーム (全コース共通) と Draft Zone / Draft Tunnel、トンネル加速、水しぶき (水たまり・周期的な波)、
+  動く足場、跳ね橋 (遮断機つき)、落下物 (予告の影)、回転ゲート、中央分離帯による車線分岐 (Dynamic Route Split / Shortcut Gate)、
+  路面 砂 / 濡れ / 石畳 / 磁力道路、風の見た目 (吹き流し)、障害物の見た目 (岩・トナカイ・手荷物カート・山車・分離帯)
+- 天候: 雨 / 砂嵐 (区間の霧と空のもや) / 雪 / オーロラ
+- コース選択画面: タイプ → やさしい順のカード (★・距離・目安タイム・特徴アイコン・見どころ・コース図)
+- Road Safety Corridor: 地形の高さ制限 (近くの全道路区間から計算)、`check:courses` の背景侵入検査 (Node 上でシーンを組み立てる) と
+  構造検査 (閉ループ/非閉ループ・CP 順・ゴール・急カーブ・狭い道・ジャンプ着地・NPC ライン)、デバッグ表示 (F6)
+- 夜の視認性: 人間の車のヘッドライト、カーブ外側の誘導灯・矢印看板・路肩の反射材
+- カメラ: 速度と曲率に応じてコースの先を見る注視点、少し高いカメラ
+- NPC: 部分的に滑る路面を避けるライン、複数の障害物をまとめて避ける判断・分離帯の反対側へ移れない、ゲート待ち、
+  動く足場の予測、P2P のゴール後の停止
+- デバッグ: コース種別・進行度・残り距離・区間・道幅・いまいる場所のギミック・スタート/ゴールの柱・ヘッドライト範囲
+- テスト追加 (計 125 件): Point to Point、新ギミック、コース一覧/★、選択画面の情報、Road Safety Corridor、復帰 2 秒
+
+### Changed
+- コースアウト後の操作不能を 6 秒 → **2 秒** (`physics.respawn.lockSeconds`)、衝突無効時間 3.5 秒
+- 難易度 ★ の定義を明確化し付け直し (★2 が最多: ★1×1 ★2×9 ★3×8 ★4×5 ★5×1)。TOYBOX MAYHEM は ★4
+- Neo Harbor の路面を少し明るく
+
+### Fixed
+- Kage Touge などで山肌の地形が道路を覆っていた問題 (地形の高さを最寄りの1区間だけで決めていたのが原因)
+- 背景物の道路への侵入: Circuit Aurora のゲートの柱、AQUA SHIFT の魚の軌道、NEON GRAVITY の柱とリング、
+  JUNGLE TEMPLE RUN の滝・崖・吊り橋、TOYBOX MAYHEM の本と鉛筆
+- 横並びで接触した NPC 同士が追従ブレーキで2台とも遅くなる問題
+- ジャンプの切れ目の中のチェックポイント (着地側へずらす)
+- ジャンプの切れ目の下の地形が浅い溝に見えていた問題 (深い谷にする)
+
 ## [2.0.0] - 2026-09-23
 
 ### Changed

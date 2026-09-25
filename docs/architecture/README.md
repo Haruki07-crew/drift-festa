@@ -3,17 +3,20 @@
 ## レイヤー
 
 ```text
-main.ts → core/App ──┬─ ui/ (SetupFlow, 各画面, UIManager, MenuBackdrop)
+main.ts → core/App ──┬─ ui/ (SetupFlow, CourseSelect, 各画面, UIManager, MenuBackdrop)
                      ├─ render/RenderContext (WebGLRenderer は1つだけ)
                      ├─ input/InputManager, audio/AudioManager, storage/StorageManager
                      └─ game/RaceSession (1レースごとに生成・dispose)
                           ├─ game/RaceWorld  ← 描画非依存のレース本体 (ヘッドレスで動く)
-                          │    ├─ physics/ (VehiclePhysics, TrackCollision, CarCollision)
-                          │    ├─ gimmicks/GimmickSystem (路面・パッド・ジャンプ・風・障害物…)
+                          │    ├─ courses/Track (中心線。周回コース = 閉じた道 / Point to Point = 開いた道)
+                          │    ├─ physics/ (VehiclePhysics, TrackCollision (+ 道の両端の壁・動的な切れ目), CarCollision)
+                          │    ├─ gimmicks/GimmickSystem (路面・パッド・加速ゲート・ジャンプ・風・障害物・足場・跳ね橋…)
                           │    ├─ npc/NpcDriver (RacingLine, NpcPatterns)
-                          │    └─ game/RaceProgress (周回・CP・順位・タイム差)
+                          │    ├─ スリップストリーム (RaceWorld.applySlipstream)
+                          │    └─ game/RaceProgress (周回 / Point to Point・CP・順位・タイム差)
                           ├─ battle/BattleManager (BATTLE DUEL のみ)
-                          ├─ courses/CourseView, vehicles/CarModel, render/ParticleSystem
+                          ├─ courses/CourseView (路面・背景・ギミックの見た目・夜の誘導灯・START/GOAL ゲート・天候)
+                          ├─ vehicles/CarModel (夜はヘッドライト), render/ParticleSystem
                           ├─ camera/ChaseCamera, ui/Hud, audio/CarSound
                           └─ debug/DebugManager
 ```
@@ -35,3 +38,11 @@ main.ts → core/App ──┬─ ui/ (SetupFlow, 各画面, UIManager, MenuBack
 - **リソース管理**: RaceSession.dispose() で Geometry / Material / Texture / 影マップ / 音ノード / DOM / イベントを解放。
   `__app.stats` で連続レース時の GPU リソース数が増えないことを確認済み
 - **座標系**: heading=0 で +Z 向き。右方向 = (-cos h, sin h)。heading 増加 = 左旋回
+- **周回と開いた道**: 周回を前提にした処理 (s の折り返し・次のサンプル) は `Track.closed` / `wrapS` / `deltaS` /
+  `forwardDistance` / `nextIndex` / `segmentCount` / `hasSegment` を使う (Point to Point で終点→始点の区間を作らない)
+- **コース品質**: `courses/RoadClearance` (Road Safety Corridor) を地形生成・背景配置・`check:courses`・デバッグ表示で共通利用
+
+## コース検証 (Node)
+
+`scripts/check-courses.ts` は `scripts/lib/headlessDom.ts` (Canvas などの最小スタブ) を入れて `CourseView` を Node 上で組み立て、
+`RoadClearance.scanIntrusions` で道路への侵入を調べる。描画はしないので GPU は不要。

@@ -4,9 +4,10 @@
 小さい子から大人までその場ですぐ遊べることを目標にしています。
 **実行時はインターネット接続不要 (完全オフライン)** です。
 
-- PURE RACE: 1〜2人 (左右分割画面) + CPU で合計 2〜8 台、3周レース
-- BATTLE DUEL: 1人 vs CPU。銃とアイテムで妨害しながら 3周レース
-- 架空の車 10 台 (FF / FR / MR / AWD)、**コース 10 個** (それぞれ固有のギミック)、CPU の強さ 4 段階 (最強 ULTIMATE まで)
+- PURE RACE: 1〜2人 (左右分割画面) + CPU で合計 2〜8 台。周回コースは3周、一本道コースはスタート → ゴール
+- BATTLE DUEL: 1人 vs CPU。銃とアイテムで妨害しながらレース
+- 架空の車 10 台 (FF / FR / MR / AWD)、**コース 24 個** (周回コース 18 + 一本道 POINT TO POINT 6。それぞれ固有のギミックと見せ場)、
+  CPU の強さ 4 段階 (最強 ULTIMATE まで)
 - 音はすべて Web Audio API で実行時に合成 (音声ファイルなし)、BGM なし
 
 ---
@@ -131,22 +132,54 @@ npm test           # 自動テスト (Vitest)
 - **Esc**: ポーズ (再開 / リスタート / 設定 / タイトルへ)。2人プレイ中もゲーム全体が止まります
 - メニュー: 矢印キー + Enter、Esc / Backspace で戻る。マウスでも操作可
 
-### コース (10)
+### コース (24)
 
-| コース | 見どころ |
-|---|---|
-| Circuit Aurora | 初心者向けサーキット。長いストレート |
-| Kage Touge | 峠道。高低差・ヘアピン・柵のない崖 |
-| Neo Harbor | 夜の港。高速区間・桟橋から落下注意 |
-| AQUA SHIFT | 海中トンネルで **水中走行モードへ変形** (ゆっくり曲がる)、浮上ジャンプ、ブーストパッド |
-| SKYLINE ZERO | 空中都市。**大ジャンプ**、透明な道路、柵のない空中道路、横風、バンク |
-| FROSTBITE PASS | **雪と氷で滑る**。氷の洞窟、氷の橋、湖へのジャンプ、氷のショートカット |
-| MAGMA FACTORY | **開閉ゲート**、動くピストン、コンベア、溶岩を飛び越えるジャンプ |
-| NEON GRAVITY | 8の字の **立体交差**、**壁を走るような超バンク**、ネオントンネル、大ジャンプ |
-| JUNGLE TEMPLE RUN | **土・泥・川**、吊り橋、洞窟、倒木、滝の裏の分岐ルート |
-| TOYBOX MAYHEM | おもちゃ部屋。**シーソー・回る積み木・列車・扇風機の風**、鉛筆の橋、本のジャンプ |
+コースは2種類あります。コース選択では最初にタイプを選び、次にやさしい順に並んだカードから選びます
+(カードに ★・距離・目安タイム・特徴のアイコン、横に コース図・見どころ・攻略 を表示)。
 
-ギミックは一定のリズムで動き、ゲートや列車は来る前にランプが点滅します (ランダムな事故はありません)。
+- **CIRCUIT (周回コース)**: 同じコースを3周してゴール
+- **POINT TO POINT (一本道)**: スタートからゴールまで一気に走る。周回表示の代わりに「進行度 % / ゴールまでの残り距離 / 区間名」を表示。
+  ミニマップは自分の周りを拡大して追従し、下に START → GOAL の進行バー (全車の位置) を出します
+
+★ の意味: ★1 とてもかんたん / ★2 はじめての人向け / ★3 ふつう / ★4 むずかしい / ★5 上級者向け
+(文化祭は初めての人が多いので ★2 のコースが一番多い: ★1×1 ★2×9 ★3×8 ★4×5 ★5×1)
+
+**POINT TO POINT (6)**
+
+| コース | ★ | 見せ場・特徴 |
+|---|---|---|
+| TOKYO MIDNIGHT EXPRESS | 2 | 夜の首都高。摩天楼の高架 → 湾岸トンネル (トンネル加速 + スリップストリーム) → 光る吊り橋 → 自分の高架の下をくぐる**らせんジャンクション** → 東京タワー風の塔 |
+| COASTAL SUNSET DRIVE | 2 | 夕日の海岸線。バンクのスイーパー、**大波が来るビーチ** (周期的な水しぶき)、岬の灯台、崖のトンネル、入り江の橋 |
+| NORTHERN LIGHTS | 2 | **オーロラ**の夜の雪原。雪のトンネル、凍った湖の氷の道、**トナカイの群れの横断**、天文台 |
+| EUROPE GRAND TOUR | 2 | 石畳の旧市街 → 噴水の広場 → **運河の2車線 (左 = 跳ね橋 + 加速ゲート / 右 = 石畳の橋)** → ぶどう畑と風車 → 古城のトンネル → 凱旋門 |
+| ALPINE ZERMATT RUN | 3 | 谷の村から山頂へ登る旅 (村 → 森 → 渓谷の橋 → 落石の山道 → 3連続ヘアピン → 雪のギャラリー → **氷河**)。正面にマッターホルン、頭上にロープウェイ |
+| DESERT CANYON RUN | 3 | メサから赤い渓谷へ。石橋、岩の洞窟、砂地、**砂嵐** (視界と横風)、干上がった川の**大ジャンプ**、落石、岩のアーチ、オアシス |
+
+**CIRCUIT (18)**
+
+| コース | ★ | 見せ場・特徴 |
+|---|---|---|
+| Circuit Aurora | 1 | 初心者向けサーキット。長いストレート |
+| Neo Harbor | 2 | 夜の港。高速区間・桟橋から落下注意 |
+| AIRPORT RUSH | 2 | 滑走路の全開ストレート (スリップストリーム合戦)、**隣で離陸する旅客機**、ジェット噴射の横風、手荷物カートの横断 |
+| MEGA MALL | 2 | ショッピングモールの中。噴水の水たまり、動く歩道、**回転扉**、2階のバルコニー、フードコート、**屋上駐車場のらせん** |
+| SCHOOL FESTIVAL CHAOS | 2 | 文化祭の学校。屋台の通り、**体育館の近道 (シャッターが開いた時だけ通れる Shortcut Gate)**、校舎の廊下、パレードの山車、巨大な机と椅子 |
+| WIND FARM HILLS | 2 | 巨大な風車の丘。バンクのカーブ、丘のてっぺんの小ジャンプ、尾根の横風 (吹き流しが合図) |
+| Kage Touge | 3 | 峠道。高低差・ヘアピン・柵のない崖 |
+| AQUA SHIFT | 3 | 海中トンネルで **水中走行モードへ変形** (ゆっくり曲がる)、浮上ジャンプ、ブーストパッド |
+| VOLCANO ISLAND | 3 | 火山島。砂浜、ジャングルの土の道、溶岩洞窟、**火口のふちの噴石**、**光る溶岩の川のジャンプ** |
+| CLOUD KINGDOM | 3 | 雲の上。**虹のガラスの橋**、**横に動く足場を2つ渡る**、島から島へのジャンプ、浮島の巨大風車 |
+| SPACE STATION | 3 | 宇宙。回転ゲート、**青く光る磁力道路の 40° 超バンク**、地球が見える窓のチューブ (トンネル加速 + スリップストリーム)、モジュール間ジャンプ |
+| RAIN CITY | 3 | 雨の夜の街。**ずっと濡れた滑る路面**、下り坂S字の水たまり、乾いた地下トンネル、雷 |
+| SKYLINE ZERO | 4 | 空中都市。**大ジャンプ**、透明な道路、柵のない空中道路、横風、バンク |
+| FROSTBITE PASS | 4 | **雪と氷で滑る**。氷の洞窟、氷の橋、湖へのジャンプ、氷のショートカット |
+| MAGMA FACTORY | 4 | **開閉ゲート**、動くピストン、コンベア、溶岩を飛び越えるジャンプ |
+| JUNGLE TEMPLE RUN | 4 | **土・泥・川**、吊り橋、洞窟、倒木、滝の裏の分岐ルート |
+| TOYBOX MAYHEM | 4 | おもちゃ部屋。**シーソー・回る積み木・列車・扇風機の風**、鉛筆の橋、本のジャンプ (一番きついヘアピン) |
+| NEON GRAVITY | 5 | 8の字の **立体交差**、**壁を走るような超バンク**、ネオントンネル、大ジャンプ |
+
+ギミックは一定のリズムで動き、ゲート・列車・山車・トナカイ・落石・波は来る前に予告 (点滅するランプ・赤い影・光る水) があります
+(ランダムな事故はありません)。夜のコースは人間の車にヘッドライトがつき、カーブの外側に誘導灯・矢印看板・反射材が並びます。
 
 ### CPU の強さ
 
@@ -159,8 +192,10 @@ npm test           # 自動テスト (Vitest)
 
 ### ルール
 
-- 全10コース・すべて3周。最初にゴールした車が勝ち
-- 柵のない場所から落ちると、最後に通過したチェックポイントへ戻り **6 秒間操作不能**
+- 周回コースは3周、POINT TO POINT はゴールラインまで。最初にゴールした車が勝ち
+- 順位: 周回コースは「周回 → チェックポイント → 次のチェックポイントまでの進み具合」、POINT TO POINT は「通過したチェックポイント → 進行度」
+- 前の車の真後ろにつくと **SLIPSTREAM** (空気抵抗が減って少し速くなる。人間も CPU も同じ条件)
+- 柵のない場所から落ちると、最後に通過したチェックポイントへ戻り **2 秒間操作不能** (`physics.ts` の `respawn.lockSeconds`)
 - BATTLE DUEL: タイヤHP 100 (車全体で1つ)。0 になると最高速度 50%。Recovery で全回復
 - アイテム最大3個。Recovery / Boost (8秒 最高速+20% 弾速+40%) / Gun (銃+弾10発)
 
@@ -172,14 +207,15 @@ npm test           # 自動テスト (Vitest)
 | キー | 内容 |
 |---|---|
 | F3 | 情報オーバーレイ: FPS・速度・速度ベクトル・ステア/ブレーキ入力・グリップ・横滑り角・ドリフト量・チェックポイント・NPC の ID / 難易度 / 性格 / 目標速度 / 状態 / ミス / 回避 |
-| F6 | 3D 表示: NPC のレーシングライン・現在のターゲット点・チェックポイント・コライダー・速度ベクトル・アイテムボックス範囲・弾丸軌道 |
+| F6 | 3D 表示: NPC のレーシングライン・現在のターゲット点・チェックポイント・コライダー・速度ベクトル・アイテムボックス範囲・弾丸軌道・**Road Safety Corridor (水色)・地形が上がり始める線 (緑)・地形/背景物の侵入点 (赤い柱)・スタート (緑) / ゴール (赤) の柱**・夜のヘッドライト範囲 |
 | F4 | 情報を表示する車を切替 |
 | F8 | プレイヤー車を自動運転 (動作確認用) |
 | F9 | 時間の早送り x1 / x4 |
 
 F6 の3D表示では、コースギミック (ブーストパッド範囲・路面タイプ・変形区間・横風・コンベア・ジャンプ台・
 動く障害物の当たり判定) と、NPC が狙っているギミックへの線も表示されます。F3 のオーバーレイには
-路面の種類とグリップ倍率、変形状態、NPC の判断状態 (decision) とギミック利用傾向が出ます。
+路面の種類とグリップ倍率、変形状態、NPC の判断状態 (decision) とギミック利用傾向、**コース種別・道幅・路肩・いまいる場所のギミック・
+安全帯への侵入数・進行度 / 残り距離 / 区間・ヘッドライトの範囲** が出ます。
 
 **レースへ直接入る (開発用):** URL にパラメータを付けるとメニューを飛ばしてレースを始められます。
 
@@ -187,8 +223,9 @@ F6 の3D表示では、コースギミック (ブーストパッド範囲・路�
 http://localhost:5173/?debug&race=aqua&mode=pure&cars=6&diff=ultimate&players=2&car=apex86&at=0.4
 ```
 
-`race` = コースID (aurora / touge / harbor / aqua / skyline / frost / magma / neon / jungle / toybox)、
-`diff` = weak / normal / strong / ultimate、`at` = 開始位置 (周回の割合 0〜1。ギミックの確認に便利)。
+`race` = コースID (aurora / touge / harbor / aqua / skyline / frost / magma / neon / jungle / toybox / tokyo / alpine /
+coastal / desert / northern / europe / airport / volcano / mall / school / cloud / space / rain / windfarm)、
+`diff` = weak / normal / strong / ultimate、`at` = 開始位置 (コース全長の割合 0〜1。ギミックの確認に便利)。
 
 ブラウザのコンソールで `__app.stats` を実行すると、レース回数・GPU のジオメトリ/テクスチャ数・ヒープ使用量を確認できます (メモリリーク確認用)。
 
@@ -199,17 +236,19 @@ http://localhost:5173/?debug&race=aqua&mode=pure&cars=6&diff=ultimate&players=2&
 | ファイル | 内容 |
 |---|---|
 | `cars.ts` | 10 車種の最高速度・加速・ブレーキ・グリップ・ドリフト・重量・耐久力・駆動方式・見た目 |
-| `physics.ts` | 車両物理 (ステアリング、グリップ、ドリフト、駆動方式ごとの癖、衝突、コースアウト復帰 6 秒 など) |
+| `physics.ts` | 車両物理 (ステアリング、グリップ、ドリフト、駆動方式ごとの癖、衝突、コースアウト復帰 2 秒 など) |
 | `npc.ts` | NPC 難易度 (Weak / Normal / Strong / Ultimate) ごとの能力レンジ、性格、レーシングライン・速度計画、回避・追い越し |
 | `battle.ts` | タイヤHP、銃 (連射間隔・弾速・射程・ダメージ・耐久力による軽減)、NPC 射撃 AI |
 | `items.ts` | アイテム抽選確率、所持数、Boost 効果、弾数、ボックス再出現時間 (8 秒) |
-| `courses/*.ts` | コース形状 (制御点・バンク角)、道幅、路肩の種類 (壁/ガードレール/芝/落下)、ギミック配置、アイテムボックス位置、色。1コース1ファイル |
-| `gimmicks.ts` | 路面ごとのグリップ・加速・抵抗、ブーストパッド、ジャンプ、水中変形、横風、障害物、シーソー、バンク、NPC のギミック利用 |
+| `courses/*.ts` | コース形状 (制御点・バンク角)、**種類 (`raceType`: circuit / pointToPoint)**、道幅、路肩の種類 (壁/ガードレール/芝/落下)、ギミック配置、アイテムボックス位置、色、天候、見せ場・攻略。1コース1ファイル |
+| `gimmicks.ts` | 路面ごとのグリップ・加速・抵抗 (砂・濡れ・石畳・磁力も)、ブーストパッド、**加速ゲート・スリップストリーム・水しぶき・動く足場・跳ね橋・落下物・トンネル加速**、ジャンプ、水中変形、横風、障害物、シーソー、バンク、NPC のギミック利用 |
+| `courseQuality.ts` | Road Safety Corridor (地形・背景物が道路にかからない帯) と地形の高さ制限、コース構造検査の基準 |
+| `courseInfo.ts` | コース選択の ★ の意味・目安タイムの平均速度・ギミックのアイコン |
 | `controls.ts` | キー割り当て |
-| `graphics.ts` | 画質プリセット (低/中/高)、カメラ演出 |
+| `graphics.ts` | 画質プリセット (低/中/高)、カメラ演出 (コースの先を見る注視点)、夜の視認性 (ヘッドライト・誘導灯)、天候の粒子 |
 | `audio.ts` | 効果音の音量・エンジン音 |
 | `themes.ts` | UI テーマ 4 種 (Arcade / Futuristic / Japanese Touge / Neon) |
-| `game.ts` | 周回数、カウントダウン、ゴール後の待ち時間、グリッド |
+| `game.ts` | 周回数、カウントダウン、ゴール後の待ち時間、グリッド、POINT TO POINT の助走路・退避路の長さ |
 
 調整例:
 
@@ -218,8 +257,11 @@ http://localhost:5173/?debug&race=aqua&mode=pure&cars=6&diff=ultimate&players=2&
 - **弾が強すぎる** → `battle.ts` の `gun.baseDamage` を下げる / `fireInterval` を上げる
 - **氷が滑りすぎる** → `gimmicks.ts` の `surfaces.ice.grip` を上げる
 - **ブーストパッドが強すぎる** → `gimmicks.ts` の `boostPad.maxSpeedMul` / `kick` を下げる
-- **コースを追加** → `src/config/courses/` にファイルを追加して `index.ts` の `COURSES` に並べる。
-  ギミックは `gimmicks` 配列に並べるだけ。`npm run check:courses` (重なり) と `npm run sim` (NPC 完走) で確認
+- **夜コースが暗い** → `graphics.ts` の `nightVisibilityConfig.headlights.intensity` を上げる、またはコースの `ambientIntensity` を上げる
+- **スリップストリームが強すぎる** → `gimmicks.ts` の `slipstream.maxSpeedBonus` を下げる
+- **コースを追加** → `src/config/courses/` にファイルを追加して `index.ts` の `COURSES` に並べ、`types.ts` の `SceneryKind` と
+  `src/courses/CourseView.ts` の背景ビルダーに登録。ギミックは `gimmicks` 配列に並べるだけ。
+  `npm run check:courses` (重なり・構造・安全帯) と `npm run sim` (NPC 完走) で確認 (詳しくは `docs/courses/README.md`)
 
 ## ディレクトリ構造
 
@@ -230,14 +272,16 @@ http://localhost:5173/?debug&race=aqua&mode=pure&cars=6&diff=ultimate&players=2&
 ├── index.html / vite.config.ts / tsconfig*.json / package.json
 ├── public/                 静的ファイル (favicon)。models/ textures/ sounds/ fonts/ は将来用
 ├── scripts/
-│   ├── check-courses.ts    コース形状の検証 (長さ・最小半径・重なり)
+│   ├── check-courses.ts    コース検証 (長さ・最小半径・重なり・構造・Road Safety Corridor)
+│   ├── lib/                検証用の部品 (Node 上で背景を組み立てる DOM スタブ・構造検査)
 │   ├── sim-race.ts         ヘッドレス NPC レースシミュレーション
 │   └── check-offline.mjs   ビルド成果物の外部 URL 検査
 ├── src/
 │   ├── main.ts             エントリーポイント
 │   ├── core/               App (画面遷移・メインループ)、math
 │   ├── config/             ★ 調整用の設定値
-│   ├── courses/            Track (中心線・射影・バンク・切れ目)、メッシュ生成、背景 (scenery/ にコース別)
+│   ├── courses/            Track (中心線・射影・バンク・切れ目・開いた道)、メッシュ生成、Road Safety Corridor、
+│   │                       夜の誘導灯、START/GOAL ゲート、天候、コース選択用の情報、背景 (scenery/ にコース別 + SceneryKit 共通部品)
 │   ├── gimmicks/           コースギミック (GimmickSystem・Obstacle・GimmickView)
 │   ├── physics/            車両物理、コース衝突、車同士の衝突
 │   ├── vehicles/           車の 3D モデル、操作入力の型
@@ -261,12 +305,13 @@ http://localhost:5173/?debug&race=aqua&mode=pure&cars=6&diff=ultimate&players=2&
 ## テスト・検証コマンド
 
 ```bash
-npm test                 # 順位計算・チェックポイント・周回・アイテム抽選・LocalStorage・車両設定・
-                         # NPCパターン (Ultimate・120/コース)・ダメージ計算・車両物理・偏差射撃・
-                         # キー割り当て・コースギミック・10コースのロードと3周完走・BATTLE Ultimate・オフライン
+npm test                 # 順位計算・チェックポイント・周回・POINT TO POINT (進行度・順位・ゴール)・アイテム抽選・LocalStorage・
+                         # 車両設定・NPCパターン (Ultimate・120/コース)・ダメージ計算・車両物理 (復帰2秒)・偏差射撃・キー割り当て・
+                         # コースギミック (v3 の新ギミック含む)・24コースのロードと完走・コース一覧/★/選択画面の情報・
+                         # Road Safety Corridor・BATTLE Ultimate・オフライン
 npm run typecheck        # TypeScript 型チェック (strict)
-npm run check:courses    # コース形状の検証
-npm run sim              # 全10コース × 全4難易度で NPC が3周完走できるか (描画なし)
+npm run check:courses    # コース検証 (重なり・構造・Road Safety Corridor。1コースだけなら -- <id>、背景検査を省くなら -- --fast)
+npm run sim              # 全24コース × 全4難易度で NPC が完走できるか (描画なし。POINT TO POINT はゴール後に止まれるかも確認)
 npm run sim -- touge strong 3   # コース・難易度・試行回数を指定
 npm run sim -- frost ultimate -- --verbose   # 復帰 (コースアウト) の場所と理由を表示
 npm run build && npm run check:offline   # ビルド成果物に外部 URL がないか

@@ -1,17 +1,19 @@
 /**
  * LocalStorage への保存・読み込み。
  *
- * 保存内容: ゲーム設定 (音量・マウス感度・カメラ揺れ・画質・テーマ・自動復帰秒数)、
+ * 保存内容: ゲーム設定 (音量・マウス感度・カメラ揺れ・画質・テーマ・自動復帰秒数・キー設定)、
  *           各コースのベストタイム / ベストラップ、前回使用した車・人数などのプレイヤー設定。
  * 壊れたデータや古い形式を読み込んでも落ちないよう、項目ごとに検証して既定値で補完する。
  * localStorage が使えない環境 (プライベートモード等) ではメモリ上だけで動作する。
  */
 import { audioConfig } from '../config/audio';
+import type { KeyBindingSet } from '../config/controls';
 import { battleConfig } from '../config/battle';
 import { gameConfig } from '../config/game';
 import { graphicsConfig, type GraphicsQuality } from '../config/graphics';
 import { NPC_DIFFICULTIES, type NpcDifficulty } from '../config/npc';
 import { DEFAULT_THEME, UI_THEMES, type UiThemeId } from '../config/themes';
+import { defaultKeyBindings, sanitizeKeyBindings } from '../input/KeyBindings';
 
 export const STORAGE_KEY = 'club-racing-festival:v1';
 
@@ -23,6 +25,8 @@ export interface GameSettings {
   theme: UiThemeId;
   /** 結果画面で無操作時にタイトルへ戻るまでの秒数 (0 = 無効) */
   idleReturnSeconds: number;
+  /** 運転キーの割り当て (初期設定 = config/controls.ts の DEFAULT_KEY_BINDINGS) */
+  keyBindings: KeyBindingSet;
 }
 
 export interface BestRecord {
@@ -64,6 +68,7 @@ export function defaultSettings(): GameSettings {
     graphicsQuality: graphicsConfig.defaultQuality,
     theme: DEFAULT_THEME,
     idleReturnSeconds: gameConfig.result.defaultIdleReturnSeconds,
+    keyBindings: defaultKeyBindings(),
   };
 }
 
@@ -112,6 +117,7 @@ export function sanitizeSaveData(raw: unknown): SaveData {
     graphicsQuality: str<GraphicsQuality>(s.graphicsQuality, ['low', 'medium', 'high'], def.settings.graphicsQuality),
     theme: str<UiThemeId>(s.theme, Object.keys(UI_THEMES) as UiThemeId[], def.settings.theme),
     idleReturnSeconds: num(s.idleReturnSeconds, def.settings.idleReturnSeconds, 0, 600),
+    keyBindings: sanitizeKeyBindings(s.keyBindings),
   };
 
   const bestTimes: Record<string, BestRecord> = {};
@@ -257,6 +263,11 @@ export class StorageManager {
     } catch {
       // 何もしない
     }
+  }
+
+  /** キー設定を初期設定に戻す */
+  resetKeyBindings(): void {
+    this.updateSettings({ keyBindings: defaultKeyBindings() });
   }
 
   /** ベストタイムのみ初期化 */

@@ -6,6 +6,7 @@
  */
 import { AudioManager } from '../audio/AudioManager';
 import { findCarSpec } from '../config/cars';
+import { controlsConfig } from '../config/controls';
 import { findCourseDef } from '../config/courses';
 import { NPC_DIFFICULTIES, type NpcDifficulty } from '../config/npc';
 import { debugRequestedByUrl, isDebugAllowed } from '../debug/DebugManager';
@@ -70,6 +71,8 @@ export class App {
   };
 
   constructor(root: HTMLElement) {
+    // 文化祭モードでは前の人が変えたキー設定を残さない (起動時に初期設定へ)
+    if (__FESTIVAL__ && controlsConfig.keyBindings.resetOnFestivalStart) this.storage.resetKeyBindings();
     const settings = this.storage.settings;
     applyTheme(settings.theme);
     this.audio = new AudioManager(settings.seVolume);
@@ -87,7 +90,7 @@ export class App {
     this.flow = new SetupFlow(this.ui, this.storage, {
       onStart: (setup) => this.startRace(setup),
       onSettings: (back) => this.openSettings(back, false),
-      onHowToPlay: (back) => showHowToPlay(this.ui, back),
+      onHowToPlay: (back) => showHowToPlay(this.ui, this.storage, back),
       onPreviewCar: (id) => this.backdrop.showCar(id),
     });
     document.addEventListener('visibilitychange', this.onVisibility);

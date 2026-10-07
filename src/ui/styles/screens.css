@@ -735,3 +735,46 @@ kbd {
   background: rgba(255, 255, 255, 0.1);
   color: var(--c-text);
 }
+
+/* ------------------------------------------------------------------ キー設定 */
+
+.key-settings-menu .menu-list.grid {
+  grid-template-columns: repeat(2, minmax(240px, 320px));
+}
+
+.key-settings-menu .menu-list.grid {
+  max-height: none;
+}
+
+.key-settings-menu .menu-item {
+  padding: 8px 14px;
+}
+
+.key-settings-menu .key-row .menu-label {
+  font-family: var(--font-mono);
+  font-size: 17px;
+}
+
+/* キーの行は説明を省いて詰める (選択中・入力待ちの行だけ説明を出す) */
+.key-settings-menu .key-row .menu-sub {
+  display: none;
+}
+
+.key-settings-menu .key-row.focused .menu-sub {
+  display: block;
+}
+
+.key-settings-status {
+  min-height: 1.6em;
+  margin: 10px 0 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: bold;
+  color: var(--c-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.key-settings-status.warn {
+  color: #111;
+  background: var(--c-accent-2);
+}

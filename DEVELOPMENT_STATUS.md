@@ -5,7 +5,18 @@
 > (specification.md は初版 v1 の原本。最新仕様は GAME_SPEC.md)
 
 ## 最終更新
-2026-09-25 (Session 3 / Claude Opus 5.5) — **v3.0.0 完了** (依頼 .ai-local/requests/2026-09-25_course-expansion-and-quality-improvements.md の全項目)
+2026-10-08 (Session 4 / Claude Opus 5.5) — **v3.1.0 キー設定 完了** (ブランチ `feature/key-settings`、main へは未マージ)
+
+### v3.1.0 キー設定
+- 初期設定 = `DEFAULT_KEY_BINDINGS` (src/config/controls.ts。1P A/F/E/W+Space、2P 矢印+Enter)。変更しないこと
+- ロジック: src/input/KeyBindings.ts (assignKey = 入れ替え、sanitizeKeyBindings、keyLabel)。使えないキーは `RESERVED_DRIVE_KEYS`
+- 保存: GameSettings.keyBindings (StorageManager、resetKeyBindings)。文化祭モードは App のコンストラクタで初期化
+- 画面: src/ui/screens/KeySettings.ts (設定 → キー設定)。あそびかたは今のキーを表示
+- レース: RaceSession が settings().keyBindings で PlayerController を作る。ポーズ中の変更も applySettings で即反映
+- 確認: typecheck / test 135 / build / check:offline、ヘッドレス Chrome で画面操作 (割り当て・入れ替え・保存) を確認
+
+---
+2026-09-25 (Session 3) — v3.0.0 完了 (依頼 .ai-local/requests/2026-09-25_course-expansion-and-quality-improvements.md の全項目)
 main にマージ・push 済み (作業ブランチ `feature/v3-course-expansion`)
 
 ## 現在の状態: v3.0.0

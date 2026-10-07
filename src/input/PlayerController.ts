@@ -6,7 +6,8 @@ import type { VehicleControls } from '../vehicles/VehicleControls';
 import type { InputManager } from './InputManager';
 
 export class PlayerController {
-  readonly bindings: DriveBindings;
+  /** ポーズ中に設定画面でキー設定を変えた時は差し替える */
+  bindings: DriveBindings;
   private readonly input: InputManager;
 
   constructor(input: InputManager, bindings: DriveBindings) {

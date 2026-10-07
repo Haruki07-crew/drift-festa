@@ -20,6 +20,8 @@ export class InputManager {
   private mouseDx = 0;
   private mouseDy = 0;
   private target: HTMLElement | null = null;
+  /** キー設定で運転に割り当てたキー (ゲーム中はブラウザ標準動作を止める) */
+  private gameKeys = new Set<string>();
 
   /** マウスの最新のクライアント座標 */
   mouseX = 0;
@@ -30,7 +32,7 @@ export class InputManager {
   captureMouse = false;
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
-    if (this.gameActive && GAME_PREVENT_DEFAULT_KEYS.includes(e.code)) {
+    if (this.gameActive && (GAME_PREVENT_DEFAULT_KEYS.includes(e.code) || this.gameKeys.has(e.code))) {
       e.preventDefault();
     }
     if (!e.repeat) {
@@ -116,6 +118,11 @@ export class InputManager {
     }
     this.target = null;
     this.keyListeners.clear();
+  }
+
+  /** 運転に割り当てたキーを登録 (キー設定で ' や / などを使ってもブラウザの検索などが動かないように) */
+  setGameKeys(codes: readonly string[]): void {
+    this.gameKeys = new Set(codes);
   }
 
   addKeyListener(listener: KeyListener): () => void {

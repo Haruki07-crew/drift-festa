@@ -7,7 +7,8 @@ import { Menu, type MenuOptions, type UiSound } from './Menu';
 
 export interface Screen {
   root: HTMLElement;
-  handleKey?(code: string): boolean;
+  /** event は押しっぱなしの連続入力 (repeat) の判定などに使う */
+  handleKey?(code: string, event?: KeyboardEvent): boolean;
   /** 毎フレーム呼ばれる (結果画面の自動復帰など) */
   update?(dt: number): void;
   dispose?(): void;
@@ -26,7 +27,7 @@ export class UIManager {
     this.audio = audio;
     this.removeKeyListener = input.addKeyListener((code, e) => {
       this.lastInteraction = performance.now();
-      if (this.current?.handleKey?.(code)) {
+      if (this.current?.handleKey?.(code, e)) {
         e.preventDefault();
       }
     });

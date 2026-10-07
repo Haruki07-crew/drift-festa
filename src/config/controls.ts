@@ -12,6 +12,10 @@
  * 注意: A/F/E/W (前 / 後 / 右 / 左) は仕様上の意図的な配置
  *       (小さい子どもでも小指〜人差し指付近で操作しやすくするため)。一般的な WASD へ変更しないこと。
  *       1人プレイで矢印キーをメイン操作に戻さないこと。
+ *
+ * キー設定 (v3.1): 上の配置が「初期設定」(DEFAULT_KEY_BINDINGS)。プレイヤーは設定画面の「キー設定」で
+ *       P1 (1人プレイ・2人の P1・BATTLE 共通) と P2 の運転操作を変更でき、LocalStorage に保存される。
+ *       文化祭モード (npm run festival) では起動時に毎回初期設定へ戻す (keyBindings.resetOnFestivalStart)。
  */
 
 export interface DriveBindings {
@@ -40,16 +44,35 @@ const ARROWS_ENTER: DriveBindings = {
   drift: ['Enter', 'NumpadEnter'],
 };
 
-export const controlsConfig = {
-  pureRace: {
-    /** 1人プレイ */
-    solo: AFEW_SPACE,
-    /** 2人プレイ: [P1, P2] */
-    twoPlayer: [AFEW_SPACE, ARROWS_ENTER] as readonly DriveBindings[],
-  },
+/** 運転操作の種類 (キー設定画面に並べる順) */
+export type DriveAction = keyof DriveBindings;
+export const DRIVE_ACTIONS: readonly DriveAction[] = ['forward', 'reverse', 'right', 'left', 'drift'];
+export const DRIVE_ACTION_LABELS: Record<DriveAction, string> = {
+  forward: '前進',
+  reverse: 'ブレーキ / 後退',
+  right: '右',
+  left: '左',
+  drift: 'ドリフト',
+};
 
+/** プレイヤーごとの運転キー (P1 = 1人プレイ・2人の P1・BATTLE DUEL 共通、P2 = 2人の P2) */
+export interface KeyBindingSet {
+  p1: DriveBindings;
+  p2: DriveBindings;
+}
+
+export type BindingPlayer = keyof KeyBindingSet;
+export const BINDING_PLAYERS: readonly BindingPlayer[] = ['p1', 'p2'];
+
+/** キー割り当ての初期設定 (設定画面の「初期設定に戻す」もこれに戻す) */
+export const DEFAULT_KEY_BINDINGS: Readonly<KeyBindingSet> = {
+  p1: AFEW_SPACE,
+  p2: ARROWS_ENTER,
+};
+
+export const controlsConfig = {
   battle: {
-    drive: AFEW_SPACE,
+    /** 運転は DEFAULT_KEY_BINDINGS.p1 (キー設定の P1) と共通 */
     /** 選択中アイテムを捨てる */
     dropItem: ['Digit4', 'Numpad4'],
     /** MouseEvent.button の番号 */
@@ -72,6 +95,11 @@ export const controlsConfig = {
     debugAutopilot: ['F8'],
     /** デバッグ: 時間の早送り (x1 → x4) */
     debugTimeScale: ['F9'],
+  },
+
+  keyBindings: {
+    /** 文化祭モード (npm run festival) では起動時にキー設定を初期設定へ戻す (前の人の変更を残さない) */
+    resetOnFestivalStart: true,
   },
 
   /** メニュー操作 (マウスクリックでも操作可能) */
@@ -103,10 +131,38 @@ export const GAME_PREVENT_DEFAULT_KEYS: readonly string[] = [
 ];
 
 /**
- * モード・人数・プレイヤー番号から運転操作のキー割り当てを返す (テスト対象)。
+ * 運転操作に割り当てられないキー (ポーズ・デバッグ・BATTLE のアイテムを捨てる・修飾キー・OS のキー)。
+ * これらを運転に使うと、ポーズできない・デバッグが誤作動するなどの問題が起きる。
  */
-export function drivingBindings(mode: 'pure' | 'battle', humanCount: number, playerIndex: number): DriveBindings {
-  if (mode === 'battle') return controlsConfig.battle.drive;
-  if (humanCount <= 1) return controlsConfig.pureRace.solo;
-  return controlsConfig.pureRace.twoPlayer[playerIndex] ?? controlsConfig.pureRace.twoPlayer[0]!;
+export const RESERVED_DRIVE_KEYS: readonly string[] = [
+  ...controlsConfig.system.pause,
+  ...controlsConfig.system.debugToggle,
+  ...controlsConfig.system.debugCycleCar,
+  ...controlsConfig.system.debugToggleGizmos,
+  ...controlsConfig.system.debugAutopilot,
+  ...controlsConfig.system.debugTimeScale,
+  ...controlsConfig.battle.dropItem,
+  'Backspace',
+  'Tab',
+  'MetaLeft',
+  'MetaRight',
+  'ContextMenu',
+  'CapsLock',
+  'F5',
+  'F11',
+  'F12',
+];
+
+/**
+ * モード・人数・プレイヤー番号から運転操作のキー割り当てを返す (テスト対象)。
+ * @param keys キー設定 (省略時は初期設定)
+ */
+export function drivingBindings(
+  mode: 'pure' | 'battle',
+  humanCount: number,
+  playerIndex: number,
+  keys: Readonly<KeyBindingSet> = DEFAULT_KEY_BINDINGS,
+): DriveBindings {
+  if (mode === 'battle' || humanCount <= 1) return keys.p1;
+  return playerIndex === 1 ? keys.p2 : keys.p1;
 }

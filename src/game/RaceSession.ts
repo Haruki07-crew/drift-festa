@@ -32,6 +32,7 @@ import type { RenderContext, Viewport } from '../render/RenderContext';
 import type { GameSettings } from '../storage/StorageManager';
 import { Hud } from '../ui/Hud';
 import { PLAYER_COLORS } from '../ui/Minimap';
+import { boundKeys } from '../input/KeyBindings';
 import { CarModel } from '../vehicles/CarModel';
 import type { RaceCar } from './RaceCar';
 import { computeGap } from './RaceProgress';
@@ -233,7 +234,8 @@ export class RaceSession {
       hud.root.style.width = `${viewport.width * 100}%`;
       deps.hudLayer.append(hud.root);
       const pan = split ? (i === 0 ? -audioConfig.splitPan : audioConfig.splitPan) : 0;
-      const bindings = drivingBindings(this.setup.mode, humans.length, car.playerIndex);
+      // 設定画面のキー設定 (保存されていなければ初期設定)
+      const bindings = drivingBindings(this.setup.mode, humans.length, car.playerIndex, deps.settings().keyBindings);
       this.views.push({
         car,
         camera,
@@ -283,6 +285,7 @@ export class RaceSession {
 
     this.debug = deps.debugEnabled ? new DebugManager(this.scene, this.world, this.battle, deps.hudLayer, humans[0]!) : null;
     deps.input.gameActive = true;
+    deps.input.setGameKeys(boundKeys(deps.settings().keyBindings));
   }
 
   get isRunning(): boolean {
@@ -304,7 +307,12 @@ export class RaceSession {
   }
 
   applySettings(settings: Readonly<GameSettings>): void {
-    for (const v of this.views) v.camera.shakeEnabled = settings.cameraShake;
+    for (const v of this.views) {
+      v.camera.shakeEnabled = settings.cameraShake;
+      // ポーズ中にキー設定を変えたら、再開後すぐに新しいキーで運転できるようにする
+      v.controller.bindings = drivingBindings(this.setup.mode, this.views.length, v.car.playerIndex, settings.keyBindings);
+    }
+    this.deps.input.setGameKeys(boundKeys(settings.keyBindings));
   }
 
   /** 毎フレーム呼ぶ */

@@ -34,9 +34,9 @@ export const physicsConfig = {
     /** 最高速度付近での加速の落ち方 (大きいほど最高速度まで粘る) */
     powerCurveExponent: 1.6,
     /** アクセルOFF時の減速 [m/s^2] */
-    coastDecel: 2.2,
+    coastDecel: 4,
     /** 転がり抵抗 [m/s^2] */
-    rollingResistance: 0.35,
+    rollingResistance: 0.5,
     /** 後退の最高速度 [km/h] */
     reverseMaxSpeedKmh: 38,
     /** 後退の加速度 [m/s^2] */

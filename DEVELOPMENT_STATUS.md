@@ -5,7 +5,7 @@
 > (specification.md は初版 v1 の原本。最新仕様は GAME_SPEC.md)
 
 ## 最終更新
-2026-10-29 (Session 5 / Claude Opus 5.5) — **v3.2.0 BGM 完了** (ブランチ `feature/bgm`。`feature/key-settings` の上に作成。どちらも main へは未マージ)
+2026-10-29 (Session 5 / Claude Opus 5.5) — **v3.2.0 BGM 完了** (ブランチ `feature/bgm`。`feature/key-settings` の上に作成。2026-10-29 に両方とも main にマージ・push 済み)
 
 ### v3.2.0 BGM
 - 全24コース + メニューにオリジナル BGM (実行時に作曲・合成。音声ファイルなし)
@@ -18,7 +18,7 @@
 - 中断中の作業: 来場者向けの遊び方スライド (PowerPoint) は作りかけ (スクリーンショット撮影まで。ファイル未作成)
 
 ---
-2026-10-08 (Session 4 / Claude Opus 5.5) — **v3.1.0 キー設定 完了** (ブランチ `feature/key-settings`、main へは未マージ)
+2026-10-08 (Session 4 / Claude Opus 5.5) — **v3.1.0 キー設定 完了** (ブランチ `feature/key-settings`、2026-10-29 に main にマージ・push 済み)
 
 ### v3.1.0 キー設定
 - 初期設定 = `DEFAULT_KEY_BINDINGS` (src/config/controls.ts。1P A/F/E/W+Space、2P 矢印+Enter)。変更しないこと

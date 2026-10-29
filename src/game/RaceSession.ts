@@ -34,6 +34,8 @@ import { Hud } from '../ui/Hud';
 import { PLAYER_COLORS } from '../ui/Minimap';
 import { boundKeys } from '../input/KeyBindings';
 import { CarModel } from '../vehicles/CarModel';
+import type { MusicPlayer } from '../audio/music/MusicPlayer';
+import { musicConfig } from '../config/music';
 import type { RaceCar } from './RaceCar';
 import { computeGap } from './RaceProgress';
 import { buildRaceCars, courseTiming, normalizeSetup, type RaceSetup } from './RaceSetup';
@@ -47,6 +49,8 @@ export interface RaceSessionDeps {
   settings: () => Readonly<GameSettings>;
   hudLayer: HTMLElement;
   debugEnabled: boolean;
+  /** BGM (最終ラップで盛り上げる・デバッグ表示) */
+  music: MusicPlayer;
 }
 
 export interface RaceResultEntry {
@@ -284,6 +288,7 @@ export class RaceSession {
     }
 
     this.debug = deps.debugEnabled ? new DebugManager(this.scene, this.world, this.battle, deps.hudLayer, humans[0]!) : null;
+    if (this.debug) this.debug.extraInfo = () => deps.music.debugText;
     deps.input.gameActive = true;
     deps.input.setGameKeys(boundKeys(deps.settings().keyBindings));
   }
@@ -426,6 +431,7 @@ export class RaceSession {
         break;
       }
       case 'racing': {
+        this.updateMusicStretch();
         const g = gameConfig.finish;
         const ended = this.setup.mode === 'battle' ? this.world.finishOrder.length > 0 : this.world.allHumansFinished;
         const timeout =
@@ -650,6 +656,18 @@ export class RaceSession {
     const v = this.viewOf(car);
     if (!v) return;
     this.deps.audio.play('fall', v.pan);
+  }
+
+  /** 先頭の人間が最終ラップ (一本道は残りわずか) に入ったら BGM を盛り上げる */
+  private updateMusicStretch(): void {
+    const music = this.deps.music;
+    if (music.isFinalStretch) return;
+    const reached = this.views.some((v) => {
+      const p = v.car.progress;
+      if (p.finished) return true;
+      return p.closed ? p.lap >= p.timing.laps : p.completion >= musicConfig.finalStretch.pointToPointCompletion;
+    });
+    if (reached) music.setFinalStretch(true);
   }
 
   private onRespawn(car: RaceCar): void {

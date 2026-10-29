@@ -8,7 +8,7 @@
 - BATTLE DUEL: 1人 vs CPU。銃とアイテムで妨害しながらレース
 - 架空の車 10 台 (FF / FR / MR / AWD)、**コース 24 個** (周回コース 18 + 一本道 POINT TO POINT 6。それぞれ固有のギミックと見せ場)、
   CPU の強さ 4 段階 (最強 ULTIMATE まで)
-- 音はすべて Web Audio API で実行時に合成 (音声ファイルなし)、BGM なし
+- 音はすべて Web Audio API で実行時に合成 (音声ファイルなし)。**BGM はコースごとのオリジナル曲を実行時に作曲・合成** (著作権・ライセンスの心配なし)
 
 ---
 
@@ -253,11 +253,15 @@ coastal / desert / northern / europe / airport / volcano / mall / school / cloud
 | `controls.ts` | キー割り当て |
 | `graphics.ts` | 画質プリセット (低/中/高)、カメラ演出 (コースの先を見る注視点)、夜の視認性 (ヘッドライト・誘導灯)、天候の粒子 |
 | `audio.ts` | 効果音の音量・エンジン音 |
+| `music.ts` | BGM の音量・曲の構成・ジャンルごとの楽器とリズム |
+| `musicThemes.ts` | コースごとの曲 (ジャンル・キー・テンポ・コード進行・メロディの種 `seed`) |
 | `themes.ts` | UI テーマ 4 種 (Arcade / Futuristic / Japanese Touge / Neon) |
 | `game.ts` | 周回数、カウントダウン、ゴール後の待ち時間、グリッド、POINT TO POINT の助走路・退避路の長さ |
 
 調整例:
 
+- **BGM のメロディを変えたい** → `musicThemes.ts` の該当コースの `seed` の数字を変える (テンポは `bpm`、雰囲気は `style`)
+- **BGM が大きすぎる** → 設定画面の「BGM の音量」、全体の上限は `music.ts` の `masterGain`
 - **CPU が少し速すぎる** → `npc.ts` の該当難易度の `cornerSpeedFactor` / `brakingFactor` を少し下げる
 - **ドリフトしにくい** → `physics.ts` の `drift.baseGripMul` を下げる、または車の `drift` を上げる
 - **弾が強すぎる** → `battle.ts` の `gun.baseDamage` を下げる / `fireInterval` を上げる
@@ -297,7 +301,7 @@ coastal / desert / northern / europe / airport / volcano / mall / school / cloud
 │   ├── items/              インベントリ、アイテムボックス
 │   ├── input/              InputManager (キー状態管理)、PlayerController
 │   ├── camera/             追従カメラ
-│   ├── audio/              効果音合成、エンジン音
+│   ├── audio/              効果音合成、エンジン音、music/ (BGM の作曲と再生)
 │   ├── render/             レンダラー、パーティクル、リソース解放
 │   ├── ui/                 HUD、ミニマップ、メニュー、各画面、CSS
 │   ├── debug/              デバッグ表示
@@ -354,7 +358,7 @@ npm run build && npm run check:offline   # ビルド成果物に外部 URL が�
 
 ## 外部アセットとライセンス
 
-外部の 3D モデル・テクスチャ・音声・フォントは使用していません。詳細は [LICENSES.md](LICENSES.md)。
+外部の 3D モデル・テクスチャ・音声・BGM・フォントは使用していません (BGM もこのプロジェクトで作ったオリジナル)。詳細は [LICENSES.md](LICENSES.md)。
 使用している npm パッケージ: three (MIT)。開発用: vite, typescript, vitest, vite-node (いずれも MIT)。
 
 ## AI 開発履歴

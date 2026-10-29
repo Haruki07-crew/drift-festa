@@ -2,7 +2,7 @@
  * 効果音設定。
  *
  * 音はすべて Web Audio API で実行時に合成する (外部音声ファイル不要・完全オフライン)。
- * BGM は仕様により無し。
+ * BGM は config/music.ts (ジャンル・音量) と config/musicThemes.ts (コースごとの曲) で設定する。
  */
 export const audioConfig = {
   /** 効果音音量の既定値 0..1 */

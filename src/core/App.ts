@@ -5,9 +5,11 @@
  * RaceSession (シーン・車・HUD など) のみ。レース終了時に RaceSession.dispose() で解放する。
  */
 import { AudioManager } from '../audio/AudioManager';
+import { MusicPlayer } from '../audio/music/MusicPlayer';
 import { findCarSpec } from '../config/cars';
 import { controlsConfig } from '../config/controls';
 import { findCourseDef } from '../config/courses';
+import { MENU_MUSIC_ID } from '../config/musicThemes';
 import { NPC_DIFFICULTIES, type NpcDifficulty } from '../config/npc';
 import { debugRequestedByUrl, isDebugAllowed } from '../debug/DebugManager';
 import type { RaceSetup } from '../game/RaceSetup';
@@ -53,6 +55,7 @@ export class App {
   private readonly storage = new StorageManager();
   private readonly input = new InputManager();
   private readonly audio: AudioManager;
+  private readonly music: MusicPlayer;
   private readonly render: RenderContext;
   private readonly ui: UIManager;
   private readonly hudLayer: HTMLElement;
@@ -76,6 +79,7 @@ export class App {
     const settings = this.storage.settings;
     applyTheme(settings.theme);
     this.audio = new AudioManager(settings.seVolume);
+    this.music = new MusicPlayer(this.audio, settings.bgmVolume);
 
     const gameLayer = root.querySelector<HTMLElement>('#game-layer');
     const hudLayer = root.querySelector<HTMLElement>('#hud-layer');
@@ -102,7 +106,10 @@ export class App {
         window.setTimeout(() => this.session?.debugTeleport(at), 200);
       }
     }
-    else this.flow.showTitle();
+    else {
+      this.flow.showTitle();
+      this.music.play(MENU_MUSIC_ID);
+    }
   }
 
   start(): void {
@@ -148,7 +155,11 @@ export class App {
           settings: () => this.storage.settings,
           hudLayer: this.hudLayer,
           debugEnabled: this.debugEnabled,
+          music: this.music,
         });
+        // コースごとの BGM (カウントダウン中のイントロから始まる)
+        this.music.play(setup.courseId);
+        this.music.setPaused(false);
         session.onFinished = (r) => this.onRaceFinished(r);
         session.onPauseRequest = () => this.pause();
         this.session = session;
@@ -160,6 +171,7 @@ export class App {
       } catch (err) {
         console.error('[App] レースの開始に失敗しました', err);
         this.state = 'menu';
+        this.music.play(MENU_MUSIC_ID);
         this.flow.showMode();
       }
     }, 30);
@@ -183,6 +195,7 @@ export class App {
     }
     this.endSession();
     this.state = 'result';
+    this.music.play(MENU_MUSIC_ID);
     this.backdrop.showCar(result.setup.humanCarIds[0] ?? null);
     showResult(this.ui, result, records, this.storage.settings.idleReturnSeconds, {
       retry: () => this.lastSetup && this.startRace(this.lastSetup),
@@ -194,6 +207,8 @@ export class App {
 
   private toMenu(show: () => void): void {
     this.endSession();
+    this.music.setPaused(false);
+    this.music.play(MENU_MUSIC_ID);
     this.state = 'menu';
     this.input.releaseAll();
     show();
@@ -204,6 +219,7 @@ export class App {
     if (!this.session || this.state !== 'race') return;
     this.state = 'paused';
     this.session.setPaused(true);
+    this.music.setPaused(true);
     this.showPauseMenu();
   }
 
@@ -221,6 +237,7 @@ export class App {
     this.ui.clear();
     this.input.releaseAll();
     this.session.setPaused(false);
+    this.music.setPaused(false);
     this.state = 'race';
     this.render.canvas.focus();
   }
@@ -238,6 +255,7 @@ export class App {
   private applySettings(s: Readonly<GameSettings>): void {
     applyTheme(s.theme);
     this.audio.setVolume(s.seVolume);
+    this.music.setVolume(s.bgmVolume);
     // レース中はレンダラーの作り直しを避ける (アンチエイリアスの変更は次回起動時/メニュー時)
     this.render.setQuality(s.graphicsQuality, this.session === null);
     this.session?.applySettings(s);
@@ -274,6 +292,7 @@ export class App {
     this.ui.dispose();
     this.backdrop.dispose();
     this.input.detach();
+    this.music.dispose();
     this.audio.dispose();
     this.render.dispose();
   }

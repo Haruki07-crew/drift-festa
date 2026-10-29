@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [3.2.0] - 2026-10-29
+
+### Added
+- BGM: 全24コースとタイトル/メニューに、雰囲気に合わせたオリジナル曲 (計25曲)。音声ファイルを使わず Web Audio API で実行時に作曲・合成
+  (著作権・ライセンスの問題なし・オフライン)。ジャンル 11 種 (Synth Pop / Eurobeat / Synthwave / Techno / Tropical / Chiptune /
+  Ambient / Rock / Folk / Tribal / Lo-Fi)。例: Kage Touge = Eurobeat、Neo Harbor = Synthwave、JUNGLE = Tribal、RAIN CITY = Lo-Fi
+- 最終ラップ (一本道は 75% 地点) で BGM のテンポを上げて盛り上げる。ポーズ中は音量を下げる。曲の切り替えはフェード
+- 設定画面に「BGM の音量」(0 = OFF。LocalStorage に保存)
+- デバッグ表示 (F3) に再生中の曲・小節
+- テスト追加 (計 146 件): 全コースに曲があること、作曲の再現性・キー・音域、BGM 音量の保存
+
+### Changed
+- 仕様の「BGM は不要」を変更 (GAME_SPEC 34.1)
+
 ## [3.1.0] - 2026-10-08
 
 ### Added

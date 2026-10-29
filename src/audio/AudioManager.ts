@@ -1,7 +1,7 @@
 /**
  * 効果音 (Web Audio API による実行時合成)。
  *
- * 音声ファイルを使わないので外部取得が一切なく、完全オフラインで動作する。BGM は仕様により無し。
+ * 音声ファイルを使わないので外部取得が一切なく、完全オフラインで動作する。BGM は audio/music/MusicPlayer (別の音量)。
  * ブラウザの自動再生制限のため、最初のユーザー操作 (キー/クリック) で AudioContext を開始する。
  */
 import { audioConfig } from '../config/audio';

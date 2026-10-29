@@ -58,6 +58,8 @@ export class DebugManager {
   /** 安全帯への侵入 (F6 を初めて押したときに検査。null = 未検査) */
   private intrusionCount: number | null = null;
   fps = 0;
+  /** 追加で表示する1行 (BGM の状態など) */
+  extraInfo: (() => string) | null = null;
 
   constructor(scene: THREE.Scene, world: RaceWorld, battle: BattleManager | null, container: HTMLElement, focusCar: RaceCar) {
     this.scene = scene;
@@ -351,6 +353,7 @@ export class DebugManager {
         `${String(car.position).padStart(2)} ${tag.padEnd(20)} ${car.spec.name.padEnd(13)} ${msToKmh(car.body.speed).toFixed(0).padStart(3)}km/h lap ${car.progress.lap} ${car.npc ? `${car.npc.debug.state} ${car.npc.debug.decision}` : ''}`,
       );
     }
+    if (this.extraInfo) lines.push(this.extraInfo());
     return lines.join('\n');
   }
 

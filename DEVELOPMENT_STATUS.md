@@ -5,6 +5,19 @@
 > (specification.md は初版 v1 の原本。最新仕様は GAME_SPEC.md)
 
 ## 最終更新
+2026-10-29 (Session 5 / Claude Opus 5.5) — **v3.2.0 BGM 完了** (ブランチ `feature/bgm`。`feature/key-settings` の上に作成。どちらも main へは未マージ)
+
+### v3.2.0 BGM
+- 全24コース + メニューにオリジナル BGM (実行時に作曲・合成。音声ファイルなし)
+- 設定: src/config/music.ts (音量・曲の構成・ジャンル11種の楽器とリズム)、src/config/musicThemes.ts (コースごとの曲。seed でメロディが変わる)
+- 作曲: src/audio/music/Composer.ts (純粋関数・テスト済み)、再生: src/audio/music/MusicPlayer.ts (先読み予約・フェード・ポーズで小さく・最終ラップで速く)
+- 組み込み: App (メニュー/レース/結果で曲を切り替え、ポーズ)、RaceSession.updateMusicStretch、設定画面の「BGM の音量」(GameSettings.bgmVolume)
+- 確認: typecheck / test 146 / build / check:offline。Chrome で全25曲の音量を測定 (ピーク 0.3 未満・割れなし、
+  レース中は効果音より約 6dB 小さい)、曲を48回切り替えてもメモリ増加なし、2P + 8台で 60fps
+- 未確認: 人の耳での聞き比べ (曲の好みは seed / style / bpm を変えて調整)
+- 中断中の作業: 来場者向けの遊び方スライド (PowerPoint) は作りかけ (スクリーンショット撮影まで。ファイル未作成)
+
+---
 2026-10-08 (Session 4 / Claude Opus 5.5) — **v3.1.0 キー設定 完了** (ブランチ `feature/key-settings`、main へは未マージ)
 
 ### v3.1.0 キー設定

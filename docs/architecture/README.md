@@ -6,6 +6,7 @@
 main.ts → core/App ──┬─ ui/ (SetupFlow, CourseSelect, 各画面, UIManager, MenuBackdrop)
                      ├─ render/RenderContext (WebGLRenderer は1つだけ)
                      ├─ input/InputManager, audio/AudioManager, storage/StorageManager
+                     ├─ audio/music/MusicPlayer (BGM。Composer がテーマから曲を組み立て、先読み予約で再生)
                      └─ game/RaceSession (1レースごとに生成・dispose)
                           ├─ game/RaceWorld  ← 描画非依存のレース本体 (ヘッドレスで動く)
                           │    ├─ courses/Track (中心線。周回コース = 閉じた道 / Point to Point = 開いた道)

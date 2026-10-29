@@ -9,6 +9,7 @@
 | 車・背景の 3D モデル | `src/vehicles/CarModel.ts`, `src/courses/` でコード生成 |
 | テクスチャ (窓明かり・? ボックス・影) | Canvas 2D で実行時生成 |
 | 効果音・エンジン音 | Web Audio API で実行時合成 (`src/audio/`) |
+| BGM (全25曲) | このプロジェクトのオリジナル。設定 (`src/config/musicThemes.ts`) から実行時に作曲・合成 (`src/audio/music/`)。既存の曲・音源の引用なし |
 | フォント | OS 標準フォントのみ (外部フォント不使用) |
 
 外部アセットを追加する場合は、URL・作者・ライセンス・利用条件をこのファイルに記録し、

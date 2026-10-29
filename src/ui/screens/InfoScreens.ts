@@ -28,6 +28,7 @@ export function showSettings(ui: UIManager, storage: StorageManager, hooks: Sett
     const s = storage.settings;
     return [
       [`効果音の音量: ${pct(s.seVolume)}`, '← → で調整'],
+      [`BGM の音量: ${s.bgmVolume > 0 ? pct(s.bgmVolume) : 'OFF'}`, '← → で調整 (コースごとに曲が変わります)'],
       [`マウス照準の感度: ${s.mouseSensitivity.toFixed(1)}`, '← → で調整 (BATTLE DUEL)'],
       [`キー設定: 1P ${driveSummary(s, 'p1')} / 2P ${driveSummary(s, 'p2')}`, sameBindings(s.keyBindings, defaultKeyBindings()) ? 'Enter で変更 (今は初期設定)' : 'Enter で変更 (変更あり)'],
       [`カメラの揺れ: ${s.cameraShake ? 'ON' : 'OFF'}`, 'Enter / ← → で切替'],
@@ -47,6 +48,7 @@ export function showSettings(ui: UIManager, storage: StorageManager, hooks: Sett
   const cycle = <T,>(list: readonly T[], cur: T, dir: number): T => list[(list.indexOf(cur) + dir + list.length) % list.length]!;
   const options: MenuOption[] = [
     { label: '', sub: '', onSelect: () => undefined, onAdjust: (d) => change({ seVolume: Math.round(Math.min(1, Math.max(0, storage.settings.seVolume + d * 0.1)) * 10) / 10 }) },
+    { label: '', sub: '', onSelect: () => undefined, onAdjust: (d) => change({ bgmVolume: Math.round(Math.min(1, Math.max(0, storage.settings.bgmVolume + d * 0.1)) * 10) / 10 }) },
     { label: '', sub: '', onSelect: () => undefined, onAdjust: (d) => change({ mouseSensitivity: Math.round(Math.min(3, Math.max(0.2, storage.settings.mouseSensitivity + d * 0.1)) * 10) / 10 }) },
     {
       label: '',

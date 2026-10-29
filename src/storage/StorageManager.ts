@@ -1,12 +1,13 @@
 /**
  * LocalStorage への保存・読み込み。
  *
- * 保存内容: ゲーム設定 (音量・マウス感度・カメラ揺れ・画質・テーマ・自動復帰秒数・キー設定)、
+ * 保存内容: ゲーム設定 (効果音/BGM の音量・マウス感度・カメラ揺れ・画質・テーマ・自動復帰秒数・キー設定)、
  *           各コースのベストタイム / ベストラップ、前回使用した車・人数などのプレイヤー設定。
  * 壊れたデータや古い形式を読み込んでも落ちないよう、項目ごとに検証して既定値で補完する。
  * localStorage が使えない環境 (プライベートモード等) ではメモリ上だけで動作する。
  */
 import { audioConfig } from '../config/audio';
+import { musicConfig } from '../config/music';
 import type { KeyBindingSet } from '../config/controls';
 import { battleConfig } from '../config/battle';
 import { gameConfig } from '../config/game';
@@ -19,6 +20,8 @@ export const STORAGE_KEY = 'club-racing-festival:v1';
 
 export interface GameSettings {
   seVolume: number;
+  /** BGM の音量 0..1 (0 = BGM なし) */
+  bgmVolume: number;
   mouseSensitivity: number;
   cameraShake: boolean;
   graphicsQuality: GraphicsQuality;
@@ -63,6 +66,7 @@ export interface StorageBackend {
 export function defaultSettings(): GameSettings {
   return {
     seVolume: audioConfig.defaultSeVolume,
+    bgmVolume: musicConfig.defaultVolume,
     mouseSensitivity: battleConfig.aim.defaultSensitivity,
     cameraShake: true,
     graphicsQuality: graphicsConfig.defaultQuality,
@@ -112,6 +116,7 @@ export function sanitizeSaveData(raw: unknown): SaveData {
   const s = isRecord(raw.settings) ? raw.settings : {};
   const settings: GameSettings = {
     seVolume: num(s.seVolume, def.settings.seVolume, 0, 1),
+    bgmVolume: num(s.bgmVolume, def.settings.bgmVolume, 0, 1),
     mouseSensitivity: num(s.mouseSensitivity, def.settings.mouseSensitivity, 0.2, 3),
     cameraShake: typeof s.cameraShake === 'boolean' ? s.cameraShake : def.settings.cameraShake,
     graphicsQuality: str<GraphicsQuality>(s.graphicsQuality, ['low', 'medium', 'high'], def.settings.graphicsQuality),

@@ -86,6 +86,7 @@ npm test           # 自動テスト (Vitest)
 - 結果画面で 60 秒操作がないと自動でタイトルへ戻ります (設定で変更可)
 - 画質が重いと感じたら「設定 → グラフィック品質 → 低」
 - 事前準備: 前日までに `npm install` と `npm run festival` を一度成功させておくこと
+- 来場者向けの遊び方スライド (PowerPoint): `docs/festival/how-to-play.pptx`。待ち列のモニターなどで流す
 
 ## 操作方法
 

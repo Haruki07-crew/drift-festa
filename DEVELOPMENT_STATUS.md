@@ -15,7 +15,8 @@
 - 確認: typecheck / test 146 / build / check:offline。Chrome で全25曲の音量を測定 (ピーク 0.3 未満・割れなし、
   レース中は効果音より約 6dB 小さい)、曲を48回切り替えてもメモリ増加なし、2P + 8台で 60fps
 - 未確認: 人の耳での聞き比べ (曲の好みは seed / style / bpm を変えて調整)
-- 中断中の作業: 来場者向けの遊び方スライド (PowerPoint) は作りかけ (スクリーンショット撮影まで。ファイル未作成)
+- 来場者向けの遊び方スライド: docs/festival/how-to-play.pptx (9枚。festival ビルドのスクリーンショット入り)。
+  操作・コース数・アイテムを変えたらスライドも直すこと
 
 ---
 2026-10-08 (Session 4 / Claude Opus 5.5) — **v3.1.0 キー設定 完了** (ブランチ `feature/key-settings`、2026-10-29 に main にマージ・push 済み)
